@@ -36,23 +36,26 @@ export function HelpDialog(props: { open: boolean; onOpenChange: (open: boolean)
         <div class="overflow-y-auto px-5 py-4 text-sm leading-relaxed">
           <H>Each turn</H>
           <p>
-            A turn is a minute of sailing; a grid cell is about 40 m, three boat lengths. Every boat sits on a grid
-            intersection. Each turn you choose a <strong>heading</strong> and how far to <strong>ease the sheet</strong>,
-            then all boats sail their minute at once and land on the nearest intersection. The dashed curve on the chart
-            shows the path you'll sail.
+            A turn is a minute of sailing; a grid cell is about 40 m. Every boat sits on a grid intersection. Each turn you
+            choose a <strong>heading</strong> (the crew trims the sails), then all boats sail their minute at once and land
+            on the nearest intersection. The dashed curve on the chart shows the path you'll sail.
+          </p>
+          <H>Boats and handicaps</H>
+          <p>
+            Four popular boats race together, as they do in ORC club classes: the Beneteau First 40.7, the J/109, the Farr
+            30 and the Melges 24. Their speeds come from real ORC certificates (the median of each class), and so do their
+            handicaps. The result is <strong>corrected time</strong>: elapsed time × the boat's factor for the race's wind
+            (light under 9 kn, medium to 14, strong above), plus penalties. The handicap evens out raw speed, so pick the
+            boat that suits the day: the Melges 24 and Farr 30 fly downwind in a breeze but lose upwind; the J/109 likes
+            light air downwind; the heavy First 40.7 is strongest upwind. Light boats also turn and pick up speed faster.
           </p>
           <H>Turning and speed</H>
           <p>
-            Your boat's speed comes from its polar (a Beneteau First 40.7) for the wind angle and strength where you are,
-            times how well your sail is trimmed. Sheet in too hard and the sail stalls; ease too far and it luffs.
-            Close-hauled wants the sail nearly centered; a run wants it eased right out.
-          </p>
-          <p class="mt-2">
-            The boat turns onto the new heading at about 12° a second when it's moving, much slower when it isn't, so it
-            sails an arc. Speed builds and fades over tens of seconds: boats carry their way. Bearing away costs almost
-            nothing; heading up bleeds speed gradually. In a tack the sails stop drawing while the bow crosses the wind,
-            about two to three boat lengths lost. You can't sail closer than about 33° to the wind (the red wedge on the
-            compass); point into it and the boat glides to a stop.
+            The boat turns onto the new heading at 10–15° a second when it's moving (much slower when it isn't), so it
+            sails an arc. Speed builds and fades over seconds to tens of seconds: boats carry their way. Bearing away costs
+            almost nothing; heading up bleeds speed gradually. In a tack the sails stop drawing while the bow crosses the
+            wind, costing two or three boat lengths. You can't sail closer than about 37–46° to the wind (the red wedge on
+            the compass, wider in light air); point into it and the boat glides to a stop.
           </p>
           <H>Wind</H>
           <p>

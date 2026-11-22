@@ -1,8 +1,8 @@
 import { chooseMove } from "./ai.ts"
 import type { Plan } from "./boat.ts"
+import { type BoatClassId, boatClass } from "./fleet.ts"
 import { type GameMap, generateMap, type RaceConfig } from "./map.ts"
 import { type GuestLink, type HostLink, host, inviteUrl, join } from "./multiplayer.ts"
-import { defaultPolar } from "./polar.ts"
 import { type Entrant, newRace, type RaceState, racing, resolveTurn, retire } from "./race.ts"
 
 /**
@@ -18,7 +18,7 @@ export type Mode = "local" | "host" | "guest"
 export type Phase = "setup" | "lobby" | "racing"
 
 export type Message =
-  | { type: "hello"; name: string }
+  | { type: "hello"; name: string; boat: BoatClassId }
   | { type: "lobby"; config: RaceConfig; entrants: Entrant[]; you: number }
   | { type: "race"; config: RaceConfig; state: RaceState; you: number; planned: number[] }
   | { type: "plan"; turn: number; plan: Plan }
@@ -214,8 +214,8 @@ export class Session {
       if (gen !== this.generation || !this.snap.state || !this.snap.map) return
       const state = this.snap.state
       const map = this.snap.map
-      for (const b of state.boats) if (racing(b) && b.controller === "ai") this.plans.set(b.id, chooseMove(map, state, b.id, defaultPolar))
-      const next = resolveTurn(map, state, this.plans, defaultPolar)
+      for (const b of state.boats) if (racing(b) && b.controller === "ai") this.plans.set(b.id, chooseMove(map, state, b.id))
+      const next = resolveTurn(map, state, this.plans)
       this.emit({ prev: state, state: next, resolving: false })
       this.beginTurn()
     }, 20)
@@ -271,7 +271,7 @@ export class Session {
       if (s.phase !== "lobby" || !s.config) return
       if (s.entrants.length >= MAX_BOATS) return
       const name = msg.name.trim().slice(0, 20) || "Guest"
-      this.setEntrants(s.config, [...s.entrants, { name, color: "", controller: "remote", peer }])
+      this.setEntrants(s.config, [...s.entrants, { name, color: "", controller: "remote", peer, boat: boatClass(msg.boat).id }])
       return
     }
     if (msg.type === "plan") {
@@ -321,14 +321,14 @@ export class Session {
 
   // ---- Joining -----------------------------------------------------------------------------------
 
-  async join(hostId: string, name: string) {
+  async join(hostId: string, name: string, boat: BoatClassId) {
     this.stop()
     const gen = this.generation
     this.emit({ mode: "guest", phase: "lobby", status: "Connecting to the host…" })
     try {
       const link = await join(hostId, {
         onOpen: () => {
-          this.guestLink?.send({ type: "hello", name })
+          this.guestLink?.send({ type: "hello", name, boat })
           this.emit({ status: "Connected. Waiting for the host to start." })
         },
         onMessage: (msg) => this.guestReceive(msg),

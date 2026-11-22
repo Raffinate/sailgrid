@@ -1,27 +1,32 @@
 # Sailgrid
 
-A turn-based sailing regatta on grid paper. It grew out of pencil racing (Racetrack): every boat sits on a
-grid intersection and its speed carries over from turn to turn. Here the speed comes from the wind and the
-sails. Each turn you set a **heading** and a **sheet** (how far the sail is eased). The boat's polar and your
-trim give a target speed, and the boat's speed eases toward it. Then every boat moves at once.
+A turn-based sailing regatta on grid paper. It grew out of pencil racing (Racetrack): every boat sits on a grid
+intersection and its speed carries over from turn to turn. Here the speed comes from the wind and the boat. Each
+turn you choose a **heading** (the crew trims the sails), then every boat sails its minute at once. You race
+one of four real boats against the others on corrected time, as ORC club classes do.
 
 ## The game
 
 - **Grid.** A fine grid (80×56 to 140×96 intersections). Boats move several intersections a turn and land on
   the nearest one.
-- **Boat.** Speeds come from a Beneteau First 40.7 polar (OpenCPN Weather Routing), interpolated the same way
-  as in [boatpolarsolver](https://github.com/Raffinate/boatpolar): monotone cubic between angles, linear
-  between wind speeds. The no-go zone is about 33° each side of the wind.
+- **Boats.** Four popular designs of different types that race together in ORC club classes: Beneteau First
+  40.7 (heavy cruiser-racer), J/109 (asymmetric spinnaker), Farr 30 (light racer) and Melges 24 (planing
+  sportboat). `scripts/fetch-boats.ts` (`pnpm fetch-boats`, run by hand once) downloads the 2026 ORC
+  certificates from data.orc.org. For each class it saves the median of 42–96 certificates into
+  `src/data/boats.json`: the VPP speed table (beat, 52°–150°, run), GPH, the inshore triple-number factors,
+  size and weight. `src/game/fleet.ts` turns that into polars and adds a pinching zone a few degrees above
+  the beat angle, a no-go zone closer to the wind, and a dead run. It also sets each class's handling (turn
+  rate and how quickly speed builds and fades, from size and weight), with `TUNING` multipliers for balance.
+- **Handicap.** Corrected time = elapsed × the boat's ORC inshore triple-number factor for the race's wind
+  (light under 9 kn, medium 9–14, strong above), relative to the First 40.7, plus penalties.
 - **Scale.** One turn is a minute of sailing; a cell is about 39 m, roughly three lengths of the 40-foot
   boat (`src/game/units.ts`).
-- **Sail trim.** The ideal sheet setting grows with the wind angle, from nearly centered close-hauled to
-  85° on a run. Easing past it makes the sail luff and loses drive fast; sheeting in too hard stalls it,
-  which costs less.
 - **Handling.** Each turn is simulated a second at a time (`src/game/boat.ts`):
-  - The boat turns onto the new heading at 3–12°/s depending on its speed, so it sails an arc. The rudder
-    costs a little speed, and the crew trims through the turn.
-  - Speed closes on its target with a time constant of about 20 s, a little slower when slowing down.
-  - Inside the no-go zone the sails give no drive and the boat stops within about 9 s. A tack costs about
+  - The boat turns onto the new heading at 3°/s when stopped, up to its class's rate (10–15°/s) at speed,
+    so it sails an arc. The rudder costs a little speed; the crew keeps the sails trimmed.
+  - Speed closes on the polar speed with the class's time constant: about 9 s for the Melges 24, 22 s for
+    the First 40.7, a little slower when slowing down.
+  - Inside the no-go zone the sails give no drive and the boat stops within 5–10 s. A tack costs about
     2.5 boat lengths and a gybe a few percent of speed; bearing away costs almost nothing.
   - The wind is sampled along the way.
   - Land, marks, gates and contact between boats are all checked along the arc actually sailed.
@@ -67,9 +72,9 @@ moves on to the next layer; crossing it the wrong way isn't allowed. Each AI boa
 heading with the real physics. It scores a heading by route time from where it lands, plus costs for lost
 speed, getting near a mark, and probably fouling another boat (assuming the others hold their course).
 
-- **Easy** looks at fewer headings and helms and trims carelessly.
+- **Easy** looks at fewer headings and helms carelessly.
 - **Medium** is more careful.
-- **Hard** trims perfectly and looks a turn further ahead, using the next turn's wind.
+- **Hard** steers precisely and looks a turn further ahead, using the next turn's wind.
 
 ## Develop
 

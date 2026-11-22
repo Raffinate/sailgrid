@@ -1,14 +1,15 @@
 import { describe, expect, it } from "vitest"
 import { chooseMove, route, timeToFinish } from "./ai.ts"
-import { idealSail, maneuver, simulate, tackOf, trimEfficiency } from "./boat.ts"
+import { maneuver, simulate, tackOf } from "./boat.ts"
+import { boatClass, FLEET, timeFactor, windBand } from "./fleet.ts"
 import { angleDiff, bearing, closestApproach, dirVec, segmentCross } from "./geom.ts"
 import { defaultConfig, type GameMap, generateMap, isWater, MAP_SIZES, type RaceConfig, startingPositions } from "./map.ts"
-import { defaultPolar } from "./polar.ts"
 import { crossGates, type Entrant, newRace, type RaceState, resolveTurn, rightOfWay, standings } from "./race.ts"
 import { BOAT_LENGTH_METERS, CELL_METERS, CELLS_PER_KNOT } from "./units.ts"
 import { CARRY, windAt, windField } from "./wind.ts"
 
-const polar = defaultPolar
+const first = boatClass("first-40-7")
+const polar = first.polar
 
 describe("geometry", () => {
   it("uses compass bearings with y pointing south", () => {
@@ -26,17 +27,31 @@ describe("geometry", () => {
   })
 })
 
-describe("polar and sail", () => {
-  it("has no speed in the no-go zone and more on a reach", () => {
-    expect(polar.speed(20, 12)).toBe(0)
+describe("fleet", () => {
+  it("has four boats from real ORC certificates, rated against the First 40.7", () => {
+    expect(FLEET.map((c) => c.id)).toEqual(["first-40-7", "j-109", "farr-30", "melges-24"])
+    for (const c of FLEET) {
+      expect(c.certificates).toBeGreaterThanOrEqual(30)
+      for (const f of Object.values(c.rating)) expect(f).toBeGreaterThan(0.85)
+    }
+    expect(first.rating).toEqual({ low: 1, medium: 1, high: 1 })
+    expect(windBand(6)).toBe("low")
+    expect(windBand(12)).toBe("medium")
+    expect(windBand(18)).toBe("high")
+    expect(timeFactor("melges-24", 18)).toBe(boatClass("melges-24").rating.high)
+  })
+
+  it("has a no-go zone that narrows as the wind builds, and more speed on a reach", () => {
+    expect(polar.speed(25, 12)).toBe(0)
+    expect(polar.minTwa(6)).toBeGreaterThan(polar.minTwa(16))
     expect(polar.speed(90, 12)).toBeGreaterThan(polar.speed(45, 12))
     expect(polar.speed(-90, 12)).toBe(polar.speed(90, 12))
   })
 
-  it("trims best at the ideal sheet setting", () => {
-    expect(trimEfficiency(idealSail(90), idealSail(90))).toBe(1)
-    expect(trimEfficiency(idealSail(45) + 20, idealSail(45))).toBeLessThan(0.3)
-    expect(trimEfficiency(idealSail(150) - 20, idealSail(150))).toBeGreaterThan(0.6)
+  it("makes the Melges 24 plane downwind in a breeze", () => {
+    const melges = boatClass("melges-24").polar
+    expect(melges.speed(145, 20)).toBeGreaterThan(polar.speed(145, 20) * 1.25)
+    expect(melges.speed(40, 20)).toBeLessThan(polar.speed(40, 20))
   })
 
   it("recognises tacks and gybes", () => {
@@ -50,10 +65,10 @@ describe("polar and sail", () => {
   it("carries momentum and loses speed tacking", () => {
     const wind = () => ({ from: 0, speed: 12 })
     const pos = { x: 50, y: 50 }
-    const straight = simulate(pos, { heading: 315, speed: 6 }, { heading: 315, sail: idealSail(45) }, wind, polar)
-    const tack = simulate(pos, { heading: 315, speed: 6 }, { heading: 45, sail: idealSail(45) }, wind, polar)
+    const straight = simulate(pos, { heading: 315, speed: 6 }, { heading: 315 }, wind, first)
+    const tack = simulate(pos, { heading: 315, speed: 6 }, { heading: 45 }, wind, first)
     expect(tack.speed).toBeLessThan(straight.speed)
-    const fromRest = simulate(pos, { heading: 90, speed: 0 }, { heading: 90, sail: idealSail(90) }, wind, polar)
+    const fromRest = simulate(pos, { heading: 90, speed: 0 }, { heading: 90 }, wind, first)
     expect(fromRest.speed).toBeLessThan(fromRest.target)
     expect(fromRest.to.x).toBeGreaterThan(pos.x)
   })
@@ -61,30 +76,39 @@ describe("polar and sail", () => {
 
 describe("boat handling", () => {
   const wind = () => ({ from: 0, speed: 12 })
-  const plan = (heading: number) => ({ heading, sail: idealSail(angleDiff(0, heading)) })
-  const sailTurns = (start: { heading: number; speed: number }, headings: number[]) => {
+  const plan = (heading: number) => ({ heading })
+  const sailTurns = (start: { heading: number; speed: number }, headings: number[], cls = first) => {
     let b = start
     let p = { x: 0, y: 0 }
     let last = null as ReturnType<typeof simulate> | null
     for (const h of headings) {
-      last = simulate(p, b, plan(h), wind, polar)
+      last = simulate(p, b, plan(h), wind, cls)
       p = last.path[last.path.length - 2] // the exact end, before snapping to the grid
       b = { heading: last.heading, speed: last.speed }
     }
     return { p, b, last: last! }
   }
-  const steady = sailTurns({ heading: 318, speed: 0 }, [318, 318, 318, 318, 318, 318]).b
+  const steady = sailTurns({ heading: 320, speed: 0 }, [320, 320, 320, 320, 320, 320]).b
 
   it("settles at the polar speed", () => {
-    expect(steady.speed).toBeCloseTo(polar.speed(42, 12), 1)
+    expect(steady.speed).toBeCloseTo(polar.speed(40, 12), 1)
   })
 
   it("loses two to four boat lengths in a tack", () => {
-    const straight = sailTurns(steady, [318, 318, 318]).p
-    const tacked = sailTurns(steady, [42, 42, 42]).p
+    const straight = sailTurns(steady, [320, 320, 320]).p
+    const tacked = sailTurns(steady, [40, 40, 40]).p
     const lengths = ((-straight.y - -tacked.y) * CELL_METERS) / BOAT_LENGTH_METERS
     expect(lengths).toBeGreaterThan(2)
     expect(lengths).toBeLessThan(4)
+  })
+
+  it("loses less in a tack on a light, nimble boat", () => {
+    const melges = boatClass("melges-24")
+    const loss = (cls: typeof first) => {
+      const s0 = sailTurns({ heading: 320, speed: 0 }, [320, 320, 320, 320, 320], cls).b
+      return (-sailTurns(s0, [320, 320], cls).p.y - -sailTurns(s0, [40, 40], cls).p.y) / s0.speed
+    }
+    expect(loss(melges)).toBeLessThan(loss(first))
   })
 
   it("bears away without losing speed, and slows gradually heading up", () => {
@@ -138,7 +162,7 @@ describe("maps", () => {
     expect(m.gates[0].kind).toBe("start")
     expect(m.gates.at(-1)!.kind).toBe("finish")
     for (const s of startingPositions(m, 8)) expect(isWater(m, s.pos)).toBe(true)
-    const r = route(m, 0, polar)
+    const r = route(m, 0, first)
     for (const s of startingPositions(m, 8)) expect(Number.isFinite(timeToFinish(r, m, 0, s.pos))).toBe(true)
   })
 
@@ -208,8 +232,8 @@ function runRace(cfg: RaceConfig, entrants: Entrant[]): { state: RaceState; map:
   const map = generateMap(cfg)
   let state = newRace(map, entrants, 250)
   while (!state.over) {
-    const plans = new Map(state.boats.map((b) => [b.id, chooseMove(map, state, b.id, polar)]))
-    state = resolveTurn(map, state, plans, polar)
+    const plans = new Map(state.boats.map((b) => [b.id, chooseMove(map, state, b.id)]))
+    state = resolveTurn(map, state, plans)
   }
   return { state, map }
 }
@@ -217,9 +241,9 @@ function runRace(cfg: RaceConfig, entrants: Entrant[]): { state: RaceState; map:
 describe("AI race", () => {
   it("finishes a windward-leeward race", () => {
     const { state, map } = runRace({ ...defaultConfig(11), laps: 1 }, [
-      { name: "Hard", color: "#000", controller: "ai", difficulty: "hard" },
-      { name: "Medium", color: "#111", controller: "ai", difficulty: "medium" },
-      { name: "Easy", color: "#222", controller: "ai", difficulty: "easy" },
+      { name: "Hard", color: "#000", controller: "ai", difficulty: "hard", boat: "first-40-7" },
+      { name: "Medium", color: "#111", controller: "ai", difficulty: "medium", boat: "j-109" },
+      { name: "Easy", color: "#222", controller: "ai", difficulty: "easy", boat: "farr-30" },
     ])
     for (const b of state.boats) expect(b.finish, `${b.name} after ${state.turn} turns, next ${b.next}/${map.gates.length}`).not.toBeNull()
     expect(state.turn).toBeLessThan(150)
@@ -228,8 +252,8 @@ describe("AI race", () => {
 
   it("finishes a race around the islands", () => {
     const { state } = runRace({ ...defaultConfig(12), course: "islands", islands: "many" }, [
-      { name: "Hard", color: "#000", controller: "ai", difficulty: "hard" },
-      { name: "Medium", color: "#111", controller: "ai", difficulty: "medium" },
+      { name: "Hard", color: "#000", controller: "ai", difficulty: "hard", boat: "melges-24" },
+      { name: "Medium", color: "#111", controller: "ai", difficulty: "medium", boat: "first-40-7" },
     ])
     for (const b of state.boats) expect(b.finish).not.toBeNull()
   }, 60_000)

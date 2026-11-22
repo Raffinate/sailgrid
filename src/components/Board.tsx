@@ -140,7 +140,7 @@ export function Board(props: BoardProps) {
         ctx,
         v,
         c,
-        { color: b.color, name: b.name, heading: plan?.heading ?? w.heading ?? b.heading, sail: plan?.sail ?? b.sail },
+        { color: b.color, name: b.name, heading: plan?.heading ?? w.heading ?? b.heading },
         w.at,
         windAt(field, b.pos).from,
         { active: frame.active === b.id, faded: !racing(b), showName: showNames },

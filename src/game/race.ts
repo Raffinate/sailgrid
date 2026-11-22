@@ -1,7 +1,7 @@
 import { type Move, type Plan, pathAt, simulate, tackOf } from "./boat.ts"
 import { closestApproach, cross, dirVec, dist, dot, lerp, pointSegment, type Pt, roundPt, samePt, segmentCross, sub } from "./geom.ts"
 import { type GameMap, isWater, landHit, startingPositions } from "./map.ts"
-import type { Polar } from "./polar.ts"
+import { type BoatClassId, boatClass, timeFactor } from "./fleet.ts"
 import { windAt, windField } from "./wind.ts"
 
 export type Controller = "human" | "ai" | "remote"
@@ -12,6 +12,8 @@ export interface Entrant {
   color: string
   controller: Controller
   difficulty?: Difficulty
+  /** Which kind of boat. */
+  boat: BoatClassId
   /** Remote players: the connection that steers this boat. */
   peer?: string
 }
@@ -21,7 +23,8 @@ export interface Boat extends Entrant {
   pos: Pt
   heading: number
   speed: number
-  sail: number
+  /** Handicap time factor for this race (ORC triple number for its wind): corrected = elapsed × rating. */
+  rating: number
   /** Position at the end of every turn so far, starting position first. */
   track: Pt[]
   /** Index of the next gate (start, marks, finish) to cross. */
@@ -86,7 +89,7 @@ export function newRace(map: GameMap, entrants: Entrant[], maxTurns = 400): Race
         pos: spots[id].pos,
         heading: spots[id].heading,
         speed: map.windSpeed * 0.25,
-        sail: 10,
+        rating: timeFactor(e.boat, map.windSpeed),
         track: [spots[id].pos],
         next: 0,
         unwind: 0,
@@ -216,7 +219,7 @@ export function rightOfWay(
 }
 
 /** All boats move at once; then fouls, groundings and course progress are scored. */
-export function resolveTurn(map: GameMap, state: RaceState, plans: Map<number, Plan>, polar: Polar): RaceState {
+export function resolveTurn(map: GameMap, state: RaceState, plans: Map<number, Plan>): RaceState {
   const turn = state.turn
   const field = windField(map, turn)
   const incidents: Incident[] = []
@@ -226,8 +229,8 @@ export function resolveTurn(map: GameMap, state: RaceState, plans: Map<number, P
   const windHere = (p: Pt) => windAt(field, p)
   for (const b of boats) {
     if (!racing(b)) continue
-    const plan = plans.get(b.id) ?? { heading: b.heading, sail: b.sail }
-    const m = simulate(b.pos, b, plan, windHere, polar)
+    const plan = plans.get(b.id) ?? { heading: b.heading }
+    const m = simulate(b.pos, b, plan, windHere, boatClass(b.boat))
     const sailed = sail(map, m.path)
     if (sailed.aground) incidents.push({ turn, boat: b.id, rule: "aground", penalty: PENALTY.aground })
     moves.set(b.id, { ...m, path: sailed.path, boat: b.id, end: sailed.end, aground: sailed.aground, speed: sailed.aground ? 0 : m.speed })
@@ -285,7 +288,6 @@ export function resolveTurn(map: GameMap, state: RaceState, plans: Map<number, P
     b.pos = m.end
     b.wake = m.path.map((p) => ({ x: Math.round(p.x * 100) / 100, y: Math.round(p.y * 100) / 100 }))
     b.heading = m.heading
-    b.sail = m.sail
     b.speed = m.speed
     b.next = prog.next
     b.unwind = prog.unwind
@@ -304,8 +306,8 @@ export function resolveTurn(map: GameMap, state: RaceState, plans: Map<number, P
   }
 }
 
-/** Corrected time: elapsed plus penalties. */
-export const corrected = (b: Boat) => (b.finish === null ? null : b.finish + b.penalty)
+/** Corrected time: elapsed time × the boat's handicap factor, plus penalties. */
+export const corrected = (b: Boat) => (b.finish === null ? null : b.finish * b.rating + b.penalty)
 
 /** Finishers by corrected time, then everyone else by progress. */
 export function standings(state: RaceState): Boat[] {
@@ -339,10 +341,10 @@ export interface PlanPreview {
 }
 
 /** What a plan would do if nobody else were around: the same physics the turn uses. */
-export function previewPlan(map: GameMap, state: RaceState, boatId: number, plan: Plan, polar: Polar): PlanPreview {
+export function previewPlan(map: GameMap, state: RaceState, boatId: number, plan: Plan): PlanPreview {
   const b = state.boats[boatId]
   const field = windField(map, state.turn)
-  const move = simulate(b.pos, b, plan, (p) => windAt(field, p), polar)
+  const move = simulate(b.pos, b, plan, (p) => windAt(field, p), boatClass(b.boat))
   const sailed = sail(map, move.path)
   const prog = crossGatesPath(map, b.next, b.unwind, sailed.path)
   return {

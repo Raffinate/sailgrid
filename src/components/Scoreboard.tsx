@@ -1,4 +1,5 @@
 import { For, Show } from "solid-js"
+import { boatClass } from "../game/fleet.ts"
 import type { GameMap } from "../game/map.ts"
 import { type Boat, corrected, isRetired, type RaceState, RULE_TEXT, racing, standings } from "../game/race.ts"
 import { Panel } from "./ui.tsx"
@@ -14,7 +15,7 @@ function who(b: Boat, mine: number[]) {
 
 function progress(map: GameMap, b: Boat) {
   if (isRetired(b)) return "Retired"
-  if (b.finish !== null) return `Finished ${fmt(b.finish)}`
+  if (b.finish !== null) return `elapsed ${fmt(b.finish)}`
   const g = map.gates[b.next]
   if (!g) return ""
   return g.kind === "start" ? "Starting" : g.kind === "finish" ? "To finish" : `To mark ${b.next}`
@@ -36,8 +37,14 @@ function BoatRow(props: { boat: Boat; place: number; map: GameMap; mine: number[
           </Show>
         </div>
         <div class="text-xs text-muted-foreground">
-          {who(b(), props.mine)} · {progress(props.map, b())}
-          <Show when={corrected(b()) !== null && b().penalty > 0}> → {fmt(corrected(b())!)}</Show>
+          {boatClass(b().boat).name} × {b().rating.toFixed(3)} · {who(b(), props.mine)}
+        </div>
+        <div class="text-xs text-muted-foreground tabular-nums">
+          {progress(props.map, b())}
+          <Show when={corrected(b()) !== null}>
+            {" "}
+            → <span class="font-medium text-foreground">corrected {fmt(corrected(b())!)}</span>
+          </Show>
         </div>
       </td>
       <td class="py-1.5 pr-2 text-right tabular-nums">{racing(b()) ? `${b().speed.toFixed(1)} kn` : "–"}</td>
@@ -75,7 +82,9 @@ export function Scoreboard(props: { map: GameMap; state: RaceState; mine: number
             </For>
           </tbody>
         </table>
-        <p class="mt-2 text-xs text-muted-foreground">Times are in turns. Penalties add to your time.</p>
+        <p class="mt-2 text-xs text-muted-foreground">
+          Times are in turns (minutes). Corrected time = elapsed × the boat's handicap factor, plus penalties.
+        </p>
       </div>
     </Panel>
   )

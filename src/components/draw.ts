@@ -1,4 +1,4 @@
-import type { Move } from "../game/boat.ts"
+import { boomAngle, type Move } from "../game/boat.ts"
 import { dirVec, lerp, type Pt, scale, sub } from "../game/geom.ts"
 import type { GameMap, Gate } from "../game/map.ts"
 import type { Boat } from "../game/race.ts"
@@ -360,7 +360,7 @@ export function drawBoat(
   ctx: CanvasRenderingContext2D,
   v: Viewport,
   c: Palette,
-  b: { color: string; name: string; heading: number; sail: number },
+  b: { color: string; name: string; heading: number },
   at: Pt,
   windFrom: number,
   opts: { active?: boolean; faded?: boolean; showName?: boolean },
@@ -391,7 +391,8 @@ export function drawBoat(
   ctx.stroke()
   // Boom on the leeward side: wind over starboard puts it to port.
   const twa = ((windFrom - b.heading + 540) % 360) - 180
-  const boomDir = b.heading + 180 + (twa >= 0 ? b.sail : -b.sail)
+  const boom = boomAngle(twa)
+  const boomDir = b.heading + 180 + (twa >= 0 ? boom : -boom)
   const mast = pt(0.12, 0)
   const bd = dirVec(boomDir)
   ctx.strokeStyle = c.line

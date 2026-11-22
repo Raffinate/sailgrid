@@ -1,44 +1,23 @@
 /**
- * Boat speed from a polar table, interpolated the same way as boatpolarsolver: monotone cubic between
- * measured angles (no invented peaks), linear between wind speeds. Angles inside the no-go zone have
- * no speed at all.
+ * Boat speed from a polar: for each wind speed, speeds at a set of true wind angles. Between measured
+ * angles speeds follow a monotone cubic (no invented peaks); between wind speeds, linear. Closer to the
+ * wind than the first angle of a curve is the no-go zone: no drive at all.
  */
 
-export interface PolarTable {
-  name: string
-  tws: number[]
+export interface PolarCurve {
+  /** True wind speed, knots. */
+  tws: number
+  /** True wind angles, ascending, degrees. */
   twa: number[]
-  /** bsp[i][j]: boat speed at twa[i] and tws[j], knots. */
-  bsp: number[][]
+  /** Boat speed at each angle, knots. */
+  bsp: number[]
 }
 
-/** Beneteau First 40.7 (OpenCPN Weather Routing polar): a well-known club racer. */
-export const FIRST_40_7: PolarTable = {
-  name: "Beneteau First 40.7",
-  tws: [4, 6, 8, 10, 12, 14, 16, 20, 25, 30],
-  twa: [33, 36, 39, 42, 45, 50, 60, 70, 80, 90, 100, 110, 120, 130, 135, 140, 150, 160, 170, 180],
-  bsp: [
-    [2.4, 3.6, 4.5, 5.2, 5.6, 5.9, 6.1, 6.1, 5.7, 4.7],
-    [2.7, 4, 5, 5.7, 6.1, 6.4, 6.5, 6.6, 6.3, 5.8],
-    [3, 4.4, 5.4, 6.1, 6.5, 6.7, 6.8, 6.9, 6.8, 6.4],
-    [3.2, 4.7, 5.8, 6.4, 6.8, 7, 7.1, 7.2, 7.1, 6.9],
-    [3.5, 5, 6.1, 6.7, 7, 7.2, 7.3, 7.4, 7.4, 7.2],
-    [3.8, 5.4, 6.4, 7, 7.3, 7.4, 7.5, 7.6, 7.7, 7.6],
-    [4.3, 5.9, 6.9, 7.4, 7.7, 7.8, 8, 8.1, 8.2, 8.2],
-    [4.6, 6.2, 7.2, 7.7, 8, 8.2, 8.3, 8.5, 8.6, 8.7],
-    [4.7, 6.4, 7.2, 7.8, 8.1, 8.4, 8.6, 8.8, 9, 9.2],
-    [4.7, 6.3, 7.2, 7.8, 8.2, 8.5, 8.8, 9.2, 9.5, 9.7],
-    [4.5, 6.2, 7.3, 7.9, 8.2, 8.5, 8.8, 9.5, 9.9, 10.2],
-    [4.4, 6.1, 7.2, 7.8, 8.3, 8.6, 8.9, 9.4, 10.3, 10.9],
-    [4.2, 5.9, 7, 7.7, 8.2, 8.6, 9, 9.6, 10.3, 11.4],
-    [3.8, 5.4, 6.7, 7.4, 8, 8.5, 8.9, 9.8, 11, 12],
-    [3.5, 5.2, 6.5, 7.3, 7.9, 8.3, 8.8, 9.7, 11.2, 12.6],
-    [3.3, 4.9, 6.2, 7.1, 7.7, 8.2, 8.6, 9.5, 11.1, 13],
-    [2.8, 4.3, 5.5, 6.6, 7.3, 7.8, 8.2, 9.1, 10.4, 12.3],
-    [2.4, 3.6, 4.8, 5.9, 6.7, 7.4, 7.9, 8.7, 9.8, 11.4],
-    [2.2, 3.3, 4.4, 5.4, 6.3, 7, 7.6, 8.4, 9.4, 10.7],
-    [2, 3.1, 4.1, 5.1, 6, 6.7, 7.3, 8.2, 9.1, 10.2],
-  ],
+export interface Polar {
+  /** Boat speed (knots) at a true wind angle (either side) and true wind speed; 0 in the no-go zone. */
+  speed(twa: number, tws: number): number
+  /** Closest sailable angle to the wind at this wind speed. */
+  minTwa(tws: number): number
 }
 
 // Fritsch–Carlson monotone cubic slopes.
@@ -72,11 +51,12 @@ function pchipSlopes(x: number[], y: number[]): number[] {
   return m
 }
 
-function curve(x: number[], y: number[]) {
+function interpolator(x: number[], y: number[]) {
   const n = x.length
   const m = pchipSlopes(x, y)
-  return (a: number): number | null => {
-    if (a < x[0] - 1e-9 || a > x[n - 1] + 1e-9) return null
+  return (a: number): number => {
+    if (a < x[0] - 1e-9) return 0
+    if (a >= x[n - 1]) return y[n - 1]
     let lo = 0
     let hi = n - 1
     while (hi - lo > 1) {
@@ -94,60 +74,54 @@ function curve(x: number[], y: number[]) {
   }
 }
 
-export interface Polar {
-  name: string
-  /** Smallest sailable true wind angle. */
-  minTwa: number
-  /** Boat speed (knots) at a true wind angle (either side) and true wind speed; 0 in the no-go zone. */
-  speed(twa: number, tws: number): number
-}
+const MAX_TWS = 40
 
-export function makePolar(table: PolarTable): Polar {
-  const curves = table.tws.map((_, j) =>
-    curve(
-      table.twa,
-      table.bsp.map((row) => row[j]),
-    ),
-  )
-  const tws = table.tws
-  // Speeds are looked up a lot (AI routing): cache on a 1° × 0.5 kn lattice and interpolate linearly.
-  const raw = (a: number, w: number): number => {
-    if (w <= 0) return 0
-    if (w < tws[0]) return (curves[0](a) ?? 0) * (w / tws[0])
-    if (w >= tws[tws.length - 1]) return curves[tws.length - 1](a) ?? 0
+export function makePolar(input: PolarCurve[]): Polar {
+  const curves = [...input].sort((a, b) => a.tws - b.tws)
+  const fns = curves.map((c) => interpolator(c.twa, c.bsp))
+  const tws = curves.map((c) => c.tws)
+  const first = tws[0]
+  const last = tws[tws.length - 1]
+  const minAt = (w: number) => {
+    if (w <= first) return curves[0].twa[0]
+    if (w >= last) return curves[curves.length - 1].twa[0]
     let j = 0
     while (tws[j + 1] < w) j++
-    const v0 = curves[j](a)
-    const v1 = curves[j + 1](a)
-    if (v0 === null || v1 === null) return 0
-    return v0 + ((v1 - v0) * (w - tws[j])) / (tws[j + 1] - tws[j])
+    const f = (w - tws[j]) / (tws[j + 1] - tws[j])
+    return curves[j].twa[0] + (curves[j + 1].twa[0] - curves[j].twa[0]) * f
   }
-  const W_STEPS = 2 * tws[tws.length - 1] + 1
-  const cache = new Float32Array(181 * W_STEPS)
-  for (let a = 0; a <= 180; a++) for (let k = 0; k < W_STEPS; k++) cache[a * W_STEPS + k] = raw(a, k / 2)
-  const at = (a: number, k: number) => cache[a * W_STEPS + Math.min(W_STEPS - 1, k)]
+  const raw = (a: number, w: number): number => {
+    if (w <= 0 || a < minAt(w) - 1e-9) return 0
+    // Below the lightest measured wind, speed falls off in proportion; above the strongest, it holds.
+    if (w < first) return fns[0](a) * (w / first)
+    if (w >= last) return fns[fns.length - 1](a)
+    let j = 0
+    while (tws[j + 1] < w) j++
+    const f = (w - tws[j]) / (tws[j + 1] - tws[j])
+    return fns[j](a) * (1 - f) + fns[j + 1](a) * f
+  }
+  // Speeds are looked up a lot (AI routing): cache on a 1° × 0.5 kn lattice and interpolate.
+  const K = 2 * MAX_TWS + 1
+  const cache = new Float32Array(181 * K)
+  for (let a = 0; a <= 180; a++) for (let k = 0; k < K; k++) cache[a * K + k] = raw(a, k / 2)
+  const at = (a: number, k: number) => cache[a * K + Math.min(K - 1, k)]
   return {
-    name: table.name,
-    minTwa: table.twa[0],
+    minTwa: minAt,
     speed(twa, w) {
       let a = Math.abs(twa) % 360
       if (a > 180) a = 360 - a
-      if (a < table.twa[0]) return 0
-      const fw = Math.max(0, w * 2)
-      const a0 = Math.floor(a)
+      const fw = Math.min(MAX_TWS, Math.max(0, w)) * 2
       const k0 = Math.floor(fw)
-      const ta = a - a0
       const tk = fw - k0
+      if (a < minAt(w)) return 0
+      const a0 = Math.floor(a)
+      const ta = a - a0
       const a1 = Math.min(180, a0 + 1)
-      const v00 = at(a0, k0)
-      const v01 = at(a0, k0 + 1)
-      const v10 = at(a1, k0)
-      const v11 = at(a1, k0 + 1)
-      // The cached lattice point just below minTwa is 0; don't let it bleed into sailable angles.
-      if (a0 < table.twa[0]) return v10 + (v11 - v10) * tk
-      return (v00 + (v01 - v00) * tk) * (1 - ta) + (v10 + (v11 - v10) * tk) * ta
+      const lo = (at(a0, k0) + (at(a0, k0 + 1) - at(a0, k0)) * tk) * (1 - ta)
+      const hi = (at(a1, k0) + (at(a1, k0 + 1) - at(a1, k0)) * tk) * ta
+      // Just past the no-go edge the lattice point below it is 0; use the exact value there.
+      if (at(a0, k0) === 0 || at(a0, k0 + 1) === 0) return raw(a, w)
+      return lo + hi
     },
   }
 }
-
-export const defaultPolar = makePolar(FIRST_40_7)

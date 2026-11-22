@@ -18,21 +18,21 @@ describe("Session", () => {
     let snap!: Snapshot
     const s = new Session((x) => (snap = x))
     const entrants: Entrant[] = [
-      { name: "Ana", color: "#f00", controller: "human" },
-      { name: "Bo", color: "#00f", controller: "human" },
-      { name: "Tern", color: "#0f0", controller: "ai", difficulty: "easy" },
+      { name: "Ana", color: "#f00", controller: "human", boat: "first-40-7" },
+      { name: "Bo", color: "#00f", controller: "human", boat: "first-40-7" },
+      { name: "Tern", color: "#0f0", controller: "ai", difficulty: "easy", boat: "melges-24" },
     ]
     s.startLocal(cfg, entrants)
     expect(snap.active).toBe(0)
     expect(snap.handoff).toBe(false)
     const b0 = snap.state!.boats[0]
-    s.submit(0, { heading: b0.heading, sail: 10 })
+    s.submit(0, { heading: b0.heading })
     // Bo's plan is next, behind the hand-over screen; nothing has moved yet.
     expect(snap.active).toBe(1)
     expect(snap.handoff).toBe(true)
     expect(snap.state!.turn).toBe(0)
     s.takeHelm()
-    s.submit(1, { heading: b0.heading, sail: 10 })
+    s.submit(1, { heading: b0.heading })
     await until(() => snap.state!.turn === 1 && !snap.resolving)
     expect(snap.prev?.turn).toBe(0)
     expect(snap.state!.boats.every((b) => b.track.length === 2)).toBe(true)
@@ -44,7 +44,7 @@ describe("Session", () => {
   it("runs an AI-only race on its own", async () => {
     let snap!: Snapshot
     const s = new Session((x) => (snap = x))
-    s.startLocal(cfg, [{ name: "Tern", color: "#0f0", controller: "ai", difficulty: "medium" }])
+    s.startLocal(cfg, [{ name: "Tern", color: "#0f0", controller: "ai", difficulty: "medium", boat: "j-109" }])
     expect(snap.active).toBeNull()
     await until(() => snap.state!.turn >= 2, 5000)
     s.setAutoplay(false)

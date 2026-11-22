@@ -1,6 +1,7 @@
 import { Button } from "@ui-sdk/solid/button"
 import { Input } from "@ui-sdk/solid/input"
 import { createSignal, For, Show } from "solid-js"
+import { type BoatClassId, boatClass, DEFAULT_BOAT, FLEET, WIND_BAND_LABEL, windBand } from "../game/fleet.ts"
 import type { CourseKind, IslandDensity, MapSize, RaceConfig, Shiftiness } from "../game/map.ts"
 import { parseJoinId } from "../game/multiplayer.ts"
 import type { Difficulty, Entrant } from "../game/race.ts"
@@ -14,7 +15,11 @@ export type PlayerKind = "human" | Difficulty
 export interface SetupPlayer {
   name: string
   kind: PlayerKind
+  boat: BoatClassId
 }
+
+// Short names in the picker; the fleet panel has the full ones.
+const BOATS = FLEET.map((c) => [c.id, c.name.replace(/^Beneteau /, "")] as const)
 
 const KINDS = [
   ["human", "Human"],
@@ -26,10 +31,10 @@ const KINDS = [
 const AI_NAMES = ["Tern", "Petrel", "Gannet", "Skua", "Fulmar", "Kittiwake", "Shearwater", "Puffin"]
 
 export const defaultPlayers = (): SetupPlayer[] => [
-  { name: "You", kind: "human" },
-  { name: "Tern", kind: "hard" },
-  { name: "Petrel", kind: "medium" },
-  { name: "Gannet", kind: "easy" },
+  { name: "You", kind: "human", boat: "first-40-7" },
+  { name: "Tern", kind: "hard", boat: "melges-24" },
+  { name: "Petrel", kind: "medium", boat: "j-109" },
+  { name: "Gannet", kind: "easy", boat: "farr-30" },
 ]
 
 export const toEntrants = (players: SetupPlayer[]): Entrant[] =>
@@ -37,6 +42,7 @@ export const toEntrants = (players: SetupPlayer[]): Entrant[] =>
     name: p.name.trim() || (p.kind === "human" ? `Sailor ${i + 1}` : AI_NAMES[i % AI_NAMES.length]),
     color: BOAT_COLORS[i % BOAT_COLORS.length],
     controller: p.kind === "human" ? "human" : "ai",
+    boat: FLEET.some((c) => c.id === p.boat) ? p.boat : DEFAULT_BOAT,
     ...(p.kind === "human" ? {} : { difficulty: p.kind }),
   }))
 
@@ -163,43 +169,56 @@ export function PlayersPanel(props: { players: SetupPlayer[]; disabled?: boolean
   const add = (kind: PlayerKind) => {
     const n = props.players.length
     const name = kind === "human" ? `Sailor ${n + 1}` : (AI_NAMES.find((a) => !props.players.some((p) => p.name === a)) ?? `Boat ${n + 1}`)
-    props.onChange([...props.players, { name, kind }])
+    props.onChange([...props.players, { name, kind, boat: FLEET[props.players.length % FLEET.length].id }])
   }
   return (
     <Panel title="Sailors" class="space-y-3">
-      <ul class="space-y-2">
+      <p class="-mt-2 text-xs text-muted-foreground">Name, who sails it, and which boat.</p>
+      <ul class="space-y-2.5">
         <For each={props.players}>
           {(p, i) => (
-            <li class="flex items-center gap-2">
-              <span class="inline-block size-3 shrink-0 rounded-full" style={{ background: BOAT_COLORS[i() % BOAT_COLORS.length] }} />
-              <Input
-                value={p.name}
-                disabled={props.disabled}
-                aria-label="Name"
-                maxlength={20}
-                onChange={(e: Event) => update(i(), { name: (e.currentTarget as HTMLInputElement).value })}
-                class="h-8 min-w-0 flex-1 rounded-md border border-input bg-card px-2.5 text-sm shadow-xs outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
-              />
-              <Choice<PlayerKind>
-                label="Who sails it"
-                value={p.kind}
-                options={KINDS}
-                disabled={props.disabled}
-                class="w-32"
-                onChange={(kind) => update(i(), { kind })}
-              />
-              <button
-                type="button"
-                aria-label={`Remove ${p.name}`}
-                disabled={props.disabled || props.players.length <= 1}
-                onClick={() => props.onChange(props.players.filter((_, j) => j !== i()))}
-                class="rounded-md p-1 text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/40 disabled:opacity-40"
-              >
-                <svg viewBox="0 0 24 24" class="size-4" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                  <path d="M18 6 6 18" />
-                  <path d="m6 6 12 12" />
-                </svg>
-              </button>
+            <li class="space-y-1.5 border-t border-border pt-2.5 first:border-t-0 first:pt-0">
+              <div class="flex items-center gap-2">
+                <span class="inline-block size-3 shrink-0 rounded-full" style={{ background: BOAT_COLORS[i() % BOAT_COLORS.length] }} />
+                <Input
+                  value={p.name}
+                  disabled={props.disabled}
+                  aria-label="Name"
+                  maxlength={20}
+                  onChange={(e: Event) => update(i(), { name: (e.currentTarget as HTMLInputElement).value })}
+                  class="h-8 min-w-0 flex-1 rounded-md border border-input bg-card px-2.5 text-sm shadow-xs outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
+                />
+                <button
+                  type="button"
+                  aria-label={`Remove ${p.name}`}
+                  disabled={props.disabled || props.players.length <= 1}
+                  onClick={() => props.onChange(props.players.filter((_, j) => j !== i()))}
+                  class="rounded-md p-1 text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/40 disabled:opacity-40"
+                >
+                  <svg viewBox="0 0 24 24" class="size-4" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                    <path d="M18 6 6 18" />
+                    <path d="m6 6 12 12" />
+                  </svg>
+                </button>
+              </div>
+              <div class="grid grid-cols-2 gap-2 pl-5">
+                <Choice<PlayerKind>
+                  label="Who sails it"
+                  value={p.kind}
+                  options={KINDS}
+                  disabled={props.disabled}
+                  class="w-full"
+                  onChange={(kind) => update(i(), { kind })}
+                />
+                <Choice<BoatClassId>
+                  label="Boat"
+                  value={FLEET.some((c) => c.id === p.boat) ? p.boat : DEFAULT_BOAT}
+                  options={BOATS}
+                  disabled={props.disabled}
+                  class="w-full"
+                  onChange={(boat) => update(i(), { boat })}
+                />
+              </div>
             </li>
           )}
         </For>
@@ -215,6 +234,38 @@ export function PlayersPanel(props: { players: SetupPlayer[]; disabled?: boolean
       <p class="text-xs text-muted-foreground">
         Several humans take turns on this screen. With no humans, sit back and watch the AI race. Up to {MAX_BOATS} boats.
       </p>
+    </Panel>
+  )
+}
+
+/**
+ * The four boats and their handicaps. They race together on corrected time (elapsed × factor, ORC
+ * inshore triple number), so the choice is about which boat suits today's wind and course.
+ */
+export function FleetPanel(props: { windSpeed: number }) {
+  const band = () => windBand(props.windSpeed)
+  return (
+    <Panel title="The fleet" class="space-y-3">
+      <p class="-mt-2 text-xs text-muted-foreground">
+        Real ORC data, the median of each class's certificates. Results are on corrected time: elapsed × factor. Factors
+        for {WIND_BAND_LABEL[band()]} ({props.windSpeed} kn):
+      </p>
+      <ul class="space-y-2.5">
+        <For each={FLEET}>
+          {(c) => (
+            <li class="text-sm">
+              <div class="flex items-baseline justify-between gap-2">
+                <span class="font-medium">{c.name}</span>
+                <span class="text-xs tabular-nums text-muted-foreground">× {c.rating[band()].toFixed(3)}</span>
+              </div>
+              <p class="text-xs text-muted-foreground">{c.blurb}</p>
+              <p class="text-xs text-muted-foreground tabular-nums">
+                {c.loa.toFixed(1)} m · {(c.displacement / 1000).toFixed(1)} t · {c.certificates} certificates
+              </p>
+            </li>
+          )}
+        </For>
+      </ul>
     </Panel>
   )
 }
@@ -313,6 +364,7 @@ export function LobbyPanel(props: {
               <span class="inline-block size-3 rounded-full" style={{ background: e().color || "var(--muted-foreground)" }} />
               <span class="flex-1">{e().name}</span>
               <span class="text-xs text-muted-foreground">
+                {boatClass(e().boat).name} ·{" "}
                 {e().controller === "remote" ? "online" : e().controller === "ai" ? `AI · ${e().difficulty}` : "host's screen"}
               </span>
             </li>

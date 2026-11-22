@@ -1,19 +1,15 @@
 import { add, angleDiff, clamp, DEG, dirVec, dist, type Pt, roundPt, scale } from "./geom.ts"
-import type { Polar } from "./polar.ts"
+import type { BoatClass } from "./fleet.ts"
 import { CELLS_PER_KNOT, TURN_SECONDS } from "./units.ts"
 import type { Wind } from "./wind.ts"
 
 export { CELLS_PER_KNOT } from "./units.ts"
 
-/** What a player decides each turn. */
+/** What a player decides each turn: the heading. The crew trims the sails. */
 export interface Plan {
   /** Compass heading, degrees. */
   heading: number
-  /** Sheet setting: the boom's angle off the centerline, 0 (sheeted hard in) to 90 (fully eased). */
-  sail: number
 }
-
-export const MAX_SAIL = 90
 
 export interface BoatMotion {
   heading: number
@@ -28,21 +24,8 @@ export const twaOf = (heading: number, windFrom: number) => angleDiff(windFrom, 
 export const tackOf = (heading: number, windFrom: number): Tack =>
   twaOf(heading, windFrom) >= 0 ? "starboard" : "port"
 
-/**
- * The sheet setting that gives the most drive at a true wind angle: nearly centered close-hauled,
- * about 35° on a beam reach, square out on a run.
- */
-export const idealSail = (twa: number) => clamp(Math.round((Math.abs(twa) - 25) * 0.55), 0, 85)
-
-/**
- * Share of the polar speed the sail delivers. Eased past the ideal it luffs and loses drive fast;
- * over-sheeted it stalls, which costs less.
- */
-export function trimEfficiency(sail: number, ideal: number): number {
-  const d = sail - ideal
-  const k = d > 0 ? d / 22 : d / 40
-  return clamp(1 - k * k, 0, 1)
-}
+/** Where the crew sets the boom for a true wind angle (for drawing): nearly centered close-hauled, squared out on a run. */
+export const boomAngle = (twa: number) => clamp(Math.round((Math.abs(twa) - 25) * 0.55), 0, 85)
 
 export interface Maneuver {
   /** Size of the turn, degrees. */
@@ -69,14 +52,10 @@ export function maneuver(from: number, to: number, windFrom: number): Maneuver {
 // ---- Boat handling, per second ------------------------------------------------------------------
 
 /** Rate of turn, degrees per second: a boat steers with water flowing past the rudder. */
-export const turnRate = (knots: number) => 3 + 9 * Math.min(1, knots / 5)
+export const turnRate = (knots: number, atSpeed: number) => 3 + (atSpeed - 3) * Math.min(1, knots / 5)
 /** Speed lost to rudder drag, per radian turned. */
 const RUDDER_DRAG = 0.08
-/** Time constants (seconds) for speed to close on its target: picking up, slowing down, and stopping in irons. */
-const TAU_UP = 20
-const TAU_DOWN = 25
-const TAU_IRONS = 9
-/** A gybe: the boom slams across and the boat wobbles. */
+/** A gybe: the boom comes across and the boat wobbles. */
 const GYBE_LOSS = 0.94
 /** Wind is sampled along the way every this many seconds; the path is recorded at the same interval. */
 const SAMPLE = 5
@@ -88,12 +67,9 @@ export interface Move extends Maneuver {
   /** The track sailed, every few seconds; the last point is `to`. */
   path: Pt[]
   heading: number
-  sail: number
   /** Signed true wind angle at the end of the turn. */
   twa: number
-  idealSail: number
-  efficiency: number
-  /** Polar speed × trim at the end of the turn: where the speed is heading. */
+  /** Polar speed at the end of the turn: where the speed is heading. */
   target: number
   /** Lowest speed during the turn (a tack or a hard turn dips it). */
   carried: number
@@ -107,14 +83,13 @@ export interface Move extends Maneuver {
 
 /**
  * One turn (a minute) of sailing, a second at a time. The boat turns onto the new heading at the rate its
- * speed allows, losing a little to rudder drag, while the crew trims through the turn. Inside the no-go
- * zone the sails give no drive and the boat glides to a stop, so a tack costs what it costs on the water.
- * Once on the new heading the sheet setting decides how much of the polar speed the sail delivers. Speed
- * always closes on its target gradually: boats carry their way.
+ * speed allows, losing a little to rudder drag; the crew keeps the sails trimmed. Inside the no-go zone
+ * the sails give no drive and the boat glides to a stop, so a tack costs what it costs on the water.
+ * Speed always closes on the polar speed gradually, at the pace of the boat's class: boats carry their way.
  */
-export function simulate(pos: Pt, boat: BoatMotion, plan: Plan, windAt: (p: Pt) => Wind, polar: Polar): Move {
+export function simulate(pos: Pt, boat: BoatMotion, plan: Plan, windAt: (p: Pt) => Wind, cls: BoatClass): Move {
   const heading = ((Math.round(plan.heading) % 360) + 360) % 360
-  const sail = clamp(Math.round(plan.sail), 0, MAX_SAIL)
+  const { polar, handling } = cls
   const perSecond = CELLS_PER_KNOT / TURN_SECONDS
   let h = boat.heading
   let v = boat.speed
@@ -131,7 +106,6 @@ export function simulate(pos: Pt, boat: BoatMotion, plan: Plan, windAt: (p: Pt) 
   let turnSeconds = 0
   let dir = dirVec(h)
   let target = 0
-  let efficiency = 1
   const path: Pt[] = [pos]
   for (let s = 0; s < TURN_SECONDS; s++) {
     if (s > 0 && s % SAMPLE === 0) {
@@ -140,7 +114,7 @@ export function simulate(pos: Pt, boat: BoatMotion, plan: Plan, windAt: (p: Pt) 
     }
     const turning = remaining !== 0
     if (turning) {
-      const step = Math.min(Math.abs(remaining), turnRate(v))
+      const step = Math.min(Math.abs(remaining), turnRate(v, handling.turnRate))
       h += step * turnDir
       remaining -= step * turnDir
       if (Math.abs(remaining) < 1e-9) remaining = 0
@@ -157,10 +131,8 @@ export function simulate(pos: Pt, boat: BoatMotion, plan: Plan, windAt: (p: Pt) 
       }
     }
     prevTwa = twa
-    // Through the turn the crew keeps the sails drawing; after it, the sheet is where the player set it.
-    efficiency = turning ? 1 : trimEfficiency(sail, idealSail(twa))
-    target = polar.speed(twa, wind.speed) * efficiency
-    const tau = target >= v ? TAU_UP : target < 0.05 ? TAU_IRONS : TAU_DOWN
+    target = polar.speed(twa, wind.speed)
+    const tau = target >= v ? handling.tauUp : target < 0.05 ? handling.tauIrons : handling.tauDown
     v += (target - v) * (1 - Math.exp(-1 / tau))
     if (v < minV) minV = v
     x += dir.x * v * perSecond
@@ -179,10 +151,7 @@ export function simulate(pos: Pt, boat: BoatMotion, plan: Plan, windAt: (p: Pt) 
     to,
     path,
     heading,
-    sail,
     twa,
-    idealSail: idealSail(twa),
-    efficiency,
     target,
     carried: minV,
     speed: v,

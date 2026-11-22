@@ -1,9 +1,9 @@
 import { For } from "solid-js"
+import { boomAngle } from "../game/boat.ts"
 import { bearing, dirVec } from "../game/geom.ts"
 
 interface CompassProps {
   heading: number
-  sail: number
   windFrom: number
   /** Half-width of the no-go zone around the wind. */
   noGo: number
@@ -40,7 +40,8 @@ export function Compass(props: CompassProps) {
   }
   const twa = () => ((props.windFrom - props.heading + 540) % 360) - 180
   const boomEnd = () => {
-    const dir = props.heading + 180 + (twa() >= 0 ? props.sail : -props.sail)
+    const boom = boomAngle(twa())
+    const dir = props.heading + 180 + (twa() >= 0 ? boom : -boom)
     const mast = at(props.heading, 10)
     const v = dirVec(dir)
     return { x1: mast.x, y1: mast.y, x2: mast.x + v.x * 30, y2: mast.y + v.y * 30 }

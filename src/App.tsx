@@ -8,6 +8,7 @@ import { IncidentLog, Scoreboard } from "./components/Scoreboard.tsx"
 import {
   CoursePanel,
   defaultPlayers,
+  FleetPanel,
   LobbyPanel,
   PlayersPanel,
   type SetupPlayer,
@@ -16,10 +17,10 @@ import {
 } from "./components/Setup.tsx"
 import { ThemeToggle } from "./components/ThemeToggle.tsx"
 import { buttonClass, Kbd, Panel } from "./components/ui.tsx"
-import { MAX_SAIL, type Plan } from "./game/boat.ts"
+import type { Plan } from "./game/boat.ts"
+import { DEFAULT_BOAT, FLEET } from "./game/fleet.ts"
 import { defaultConfig, generateMap, type RaceConfig } from "./game/map.ts"
 import { parseJoinId } from "./game/multiplayer.ts"
-import { defaultPolar } from "./game/polar.ts"
 import { corrected, previewPlan, racing, standings } from "./game/race.ts"
 import { randomSeed } from "./game/rng.ts"
 import { IDLE_SNAPSHOT, Session, type Snapshot } from "./game/session.ts"
@@ -33,7 +34,11 @@ function loadSetup(): { config: RaceConfig; players: SetupPlayer[] } {
     const raw = localStorage.getItem(SETUP_KEY)
     if (!raw) return fallback
     const saved = JSON.parse(raw) as { config?: Partial<RaceConfig>; players?: SetupPlayer[] }
-    const players = Array.isArray(saved.players) && saved.players.length ? saved.players : fallback.players
+    const players = (Array.isArray(saved.players) && saved.players.length ? saved.players : fallback.players).map((p) => ({
+      ...p,
+      // Setups saved before there was a choice of boats.
+      boat: FLEET.some((c) => c.id === p.boat) ? p.boat : DEFAULT_BOAT,
+    }))
     return { config: { ...fallback.config, ...saved.config }, players }
   } catch {
     return fallback
@@ -92,18 +97,18 @@ export function App() {
   // The plan being set up for the active boat: starts from its current heading and sheet each turn.
   const basePlan = createMemo(() => {
     const b = activeBoat()
-    return b ? { heading: b.heading, sail: b.sail, key: `${snap().state?.turn}:${b.id}` } : null
+    return b ? { heading: b.heading, key: `${snap().state?.turn}:${b.id}` } : null
   })
   const [plan, setPlan] = createSignal<Plan>(() => {
     const b = basePlan()
-    return b ? { heading: b.heading, sail: b.sail } : { heading: 0, sail: 0 }
+    return { heading: b?.heading ?? 0 }
   })
 
   const preview = createMemo(() => {
     const s = snap()
     const b = activeBoat()
     if (!b || !s.map || !s.state) return null
-    return previewPlan(s.map, s.state, b.id, plan(), defaultPolar)
+    return previewPlan(s.map, s.state, b.id, plan())
   })
   const windHere = createMemo(() => {
     const s = snap()
@@ -126,7 +131,8 @@ export function App() {
     track("race_hosted")
   }
   const joinOnline = (id: string) => {
-    void session.join(id, players().find((p) => p.kind === "human")?.name ?? "Guest")
+    const me = players().find((p) => p.kind === "human")
+    void session.join(id, me?.name ?? "Guest", me?.boat ?? DEFAULT_BOAT)
     track("race_joined")
   }
 
@@ -159,10 +165,8 @@ export function App() {
     }
     const p = plan()
     const big = e.shiftKey ? 10 : 1
-    if (e.key === "ArrowLeft") setPlan({ ...p, heading: (p.heading - big + 360) % 360 })
-    else if (e.key === "ArrowRight") setPlan({ ...p, heading: (p.heading + big) % 360 })
-    else if (e.key === "ArrowUp") setPlan({ ...p, sail: Math.min(MAX_SAIL, p.sail + (e.shiftKey ? 5 : 1)) })
-    else if (e.key === "ArrowDown") setPlan({ ...p, sail: Math.max(0, p.sail - (e.shiftKey ? 5 : 1)) })
+    if (e.key === "ArrowLeft") setPlan({ heading: (p.heading - big + 360) % 360 })
+    else if (e.key === "ArrowRight") setPlan({ heading: (p.heading + big) % 360 })
     else if (e.key === "Enter") submit()
     else return
     e.preventDefault()
@@ -247,7 +251,7 @@ export function App() {
         </div>
         <h1 class="text-2xl font-semibold tracking-tight">Sailgrid</h1>
         <p class="mt-1 text-sm text-muted-foreground">
-          A turn-based regatta on grid paper. Set your heading, trim your sail, play the wind shifts and round the marks.
+          A turn-based regatta on grid paper. Pick your boat, set your heading, play the wind shifts and round the marks.
         </p>
       </header>
 
@@ -267,7 +271,7 @@ export function App() {
                   focus={activeBoat()?.id ?? snap().mine[0] ?? null}
                   preview={preview() ? { move: preview()!.move, stop: preview()!.stop, aground: preview()!.aground } : null}
                   showWind={showWind()}
-                  onAim={(heading) => setPlan({ ...plan(), heading })}
+                  onAim={(heading) => setPlan({ heading })}
                 />
               )}
             </Show>
@@ -327,6 +331,7 @@ export function App() {
             <StartPanel defaultJoin="" onStart={start} onHost={hostOnline} onJoin={joinOnline} />
             <PlayersPanel players={players()} onChange={editPlayers} />
             <CoursePanel config={config()} onChange={editConfig} />
+            <FleetPanel windSpeed={config().windSpeed} />
           </Show>
 
           <Show when={snap().phase === "lobby"}>
@@ -346,6 +351,7 @@ export function App() {
               <PlayersPanel players={players()} onChange={editPlayers} />
               <CoursePanel config={config()} onChange={editConfig} />
             </Show>
+            <FleetPanel windSpeed={snap().config?.windSpeed ?? config().windSpeed} />
           </Show>
 
           <Show when={snap().phase === "racing" && snap().map && snap().state}>

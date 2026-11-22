@@ -8,7 +8,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "fetch-boats": "node --experimental-strip-types --no-warnings scripts/fetch-boats.ts"
   },
   "dependencies": {
     "@solidjs/web": "2.0.3",

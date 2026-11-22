@@ -1,17 +1,17 @@
 import { Button } from "@ui-sdk/solid/button"
 import { Show } from "solid-js"
-import { MAX_SAIL, type Plan, tackOf } from "../game/boat.ts"
+import { type Plan, tackOf } from "../game/boat.ts"
+import { boatClass } from "../game/fleet.ts"
 import type { GameMap } from "../game/map.ts"
-import { defaultPolar } from "../game/polar.ts"
-import { CELL_METERS } from "../game/units.ts"
 import type { Boat, PlanPreview } from "../game/race.ts"
+import { CELL_METERS } from "../game/units.ts"
 import { Compass } from "./Compass.tsx"
 import { RangeField } from "./RangeField.tsx"
 import { buttonClass, Kbd, Panel } from "./ui.tsx"
 
-export function pointOfSail(twa: number) {
+export function pointOfSail(twa: number, noGo: number) {
   const a = Math.abs(twa)
-  if (a < defaultPolar.minTwa) return "In irons"
+  if (a < noGo) return "In irons"
   if (a < 55) return "Close-hauled"
   if (a < 80) return "Close reach"
   if (a < 105) return "Beam reach"
@@ -61,20 +61,16 @@ interface HelmProps {
   onSubmit: () => void
 }
 
-/** The controls for the boat whose turn it is: heading, sheet, and what that will do. */
+/** The controls for the boat whose turn it is: where to steer, and what that will do. The crew trims. */
 export function Helm(props: HelmProps) {
   const mv = () => props.preview.move
-  const trim = () => {
-    const e = mv().efficiency
-    const d = props.plan.sail - mv().idealSail
-    if (e > 0.97) return { text: "Well trimmed", tone: "good" as const }
-    if (d > 0) return { text: e < 0.4 ? "Luffing badly" : "Luffing: sheet in", tone: e < 0.4 ? ("danger" as const) : ("warn" as const) }
-    return { text: e < 0.6 ? "Stalled: ease out" : "Over-sheeted: ease a bit", tone: e < 0.6 ? ("danger" as const) : ("warn" as const) }
-  }
+  const cls = () => boatClass(props.boat.boat)
+  const noGo = () => cls().polar.minTwa(props.windSpeed)
+  const dips = () => mv().carried < Math.min(props.boat.speed, mv().speed) - 0.3
   const warnings = () => {
     const w: string[] = []
     const p = props.preview
-    if (Math.abs(mv().twa) < defaultPolar.minTwa) w.push("Pointing into the wind: no drive.")
+    if (Math.abs(mv().twa) < noGo()) w.push("Pointing into the wind: no drive.")
     if (mv().tacked) w.push("Tacking: the sails stop drawing as the bow crosses the wind, and you must keep clear of other boats.")
     if (mv().gybed) w.push("Gybing: the boom comes across, a little speed lost.")
     if (p.aground) w.push("This runs aground: you'll stop short and take a penalty.")
@@ -91,16 +87,17 @@ export function Helm(props: HelmProps) {
         </h2>
         <span class="text-xs text-muted-foreground tabular-nums">Turn {props.turn + 1}</span>
       </div>
-      <p class="-mt-2 text-xs text-muted-foreground">{gateLabel(props.map, props.boat.next)}</p>
+      <p class="-mt-2 text-xs text-muted-foreground">
+        {cls().name} · {gateLabel(props.map, props.boat.next)}
+      </p>
 
       <Compass
         heading={props.plan.heading}
-        sail={props.plan.sail}
         windFrom={props.windFrom}
-        noGo={defaultPolar.minTwa}
+        noGo={noGo()}
         color={props.boat.color}
         disabled={props.disabled}
-        onHeading={(heading) => props.onPlan({ ...props.plan, heading })}
+        onHeading={(heading) => props.onPlan({ heading })}
       />
 
       <RangeField
@@ -111,18 +108,7 @@ export function Helm(props: HelmProps) {
         max={359}
         step={1}
         color={props.boat.color}
-        onChange={(heading) => props.onPlan({ ...props.plan, heading: Math.round(heading) % 360 })}
-      />
-      <RangeField
-        label="Sheet out"
-        unit="°"
-        value={props.plan.sail}
-        min={0}
-        max={MAX_SAIL}
-        step={1}
-        color="var(--foreground)"
-        onChange={(sail) => props.onPlan({ ...props.plan, sail: Math.round(sail) })}
-        hint={<p class="mt-1 text-xs text-muted-foreground">0° sheeted hard in, {MAX_SAIL}° eased right out.</p>}
+        onChange={(heading) => props.onPlan({ heading: Math.round(heading) % 360 })}
       />
 
       <div class="space-y-1.5 rounded-lg bg-muted px-3 py-2.5">
@@ -130,17 +116,12 @@ export function Helm(props: HelmProps) {
         <Row
           label="Wind angle"
           value={`${Math.abs(Math.round(mv().twa))}°`}
-          sub={`${pointOfSail(mv().twa)}, ${tackOf(mv().heading, props.windFrom)} tack`}
+          sub={`${pointOfSail(mv().twa, noGo())}, ${tackOf(mv().heading, props.windFrom)} tack`}
         />
-        <Row label="Trim" value={`${Math.round(mv().efficiency * 100)}%`} sub={trim().text} tone={trim().tone} />
         <Row
           label="Speed"
           value={`${props.boat.speed.toFixed(1)} → ${mv().speed.toFixed(1)} kn`}
-          sub={
-            mv().carried < Math.min(props.boat.speed, mv().speed) - 0.3
-              ? `dips to ${mv().carried.toFixed(1)}`
-              : `aiming for ${mv().target.toFixed(1)}`
-          }
+          sub={dips() ? `dips to ${mv().carried.toFixed(1)}` : `polar ${mv().target.toFixed(1)}`}
           tone={mv().carried < Math.min(props.boat.speed, mv().speed) - 1 ? "warn" : undefined}
         />
         <Row
@@ -169,8 +150,7 @@ export function Helm(props: HelmProps) {
       </Button>
       <p class="text-center text-xs text-muted-foreground">
         Click or drag on the chart to aim. <Kbd>←</Kbd>
-        <Kbd>→</Kbd> heading, <Kbd>↑</Kbd>
-        <Kbd>↓</Kbd> sheet.
+        <Kbd>→</Kbd> to steer (<Kbd>Shift</Kbd> for 10°).
       </p>
     </Panel>
   )

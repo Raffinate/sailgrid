@@ -1,7 +1,7 @@
-import { CELLS_PER_KNOT, idealSail, MAX_SAIL, type Plan, simulate, twaOf } from "./boat.ts"
+import { CELLS_PER_KNOT, type Plan, simulate, twaOf } from "./boat.ts"
 import { bearing, clamp, cross, type Pt, pointSegment, samePt, segmentCross, sub } from "./geom.ts"
 import { type GameMap, inBounds, landHit } from "./map.ts"
-import type { Polar } from "./polar.ts"
+import { type BoatClass, boatClass } from "./fleet.ts"
 import { type Boat, CONTACT, crossGatesPath, type Difficulty, pathApproach, type RaceState, racing, rightOfWay } from "./race.ts"
 import { hash, mulberry32 } from "./rng.ts"
 import { windAt, windField } from "./wind.ts"
@@ -101,64 +101,90 @@ class Heap {
   }
 }
 
-const routeCache = new WeakMap<GameMap, Map<number, Route>>()
+/**
+ * Which way each grid step crosses each course gate: per gate, one entry per (intersection, offset):
+ * 0 = doesn't cross, 1 = crosses the right way, −1 = the wrong way. Gates don't move, so once per map.
+ */
+const gateCache = new WeakMap<GameMap, Int8Array[]>()
+function gateCrossings(m: GameMap): Int8Array[] {
+  let c = gateCache.get(m)
+  if (c) return c
+  const K = OFFSETS.length
+  const edges = waterEdges(m)
+  c = m.gates.map((gate) => {
+    const t = new Int8Array(m.width * m.height * K)
+    const dir = sub(gate.b, gate.a)
+    for (let y = 0; y < m.height; y++)
+      for (let x = 0; x < m.width; x++) {
+        const u = y * m.width + x
+        const bits = edges[u]
+        if (!bits) continue
+        for (let k = 0; k < K; k++) {
+          if (!(bits & (1 << k))) continue
+          const q = { x: x + OFFSETS[k].x, y: y + OFFSETS[k].y }
+          const hit = segmentCross({ x, y }, q, gate.a, gate.b)
+          if (!hit || hit.t <= 1e-9) continue
+          t[u * K + k] = gate.sign === 0 || Math.sign(cross(dir, OFFSETS[k])) === gate.sign ? 1 : -1
+        }
+      }
+    return t
+  })
+  gateCache.set(m, c)
+  return c
+}
 
-export function route(m: GameMap, turn: number, polar: Polar): Route {
+const routeCache = new WeakMap<GameMap, Map<string, Route>>()
+
+export function route(m: GameMap, turn: number, cls: BoatClass): Route {
   let perMap = routeCache.get(m)
   if (!perMap) routeCache.set(m, (perMap = new Map()))
-  const hit = perMap.get(turn)
+  const key = `${cls.id}:${turn}`
+  const hit = perMap.get(key)
   if (hit) return hit
-  const r = computeRoute(m, turn, polar)
-  perMap.set(turn, r)
-  if (perMap.size > 4) perMap.delete(perMap.keys().next().value!)
+  const r = computeRoute(m, turn, cls)
+  perMap.set(key, r)
+  if (perMap.size > 12) perMap.delete(perMap.keys().next().value!)
   return r
 }
 
-function computeRoute(m: GameMap, turn: number, polar: Polar): Route {
+function computeRoute(m: GameMap, turn: number, cls: BoatClass): Route {
+  const polar = cls.polar
   const field = windField(m, turn)
   const edges = waterEdges(m)
+  const gates = gateCrossings(m)
   const N = m.width * m.height
   const G = m.gates.length
+  const K = OFFSETS.length
+  const W = m.width
   const time = new Float64Array(N * G).fill(Infinity)
   const heap = new Heap()
-  const W = m.width
-  const stepTime = (u: number, k: number) => {
-    const s = polar.speed(OFFSET_BEARING[k] - field.from[u], field.speed[u]) * CELLS_PER_KNOT
-    return s < 0.2 ? Infinity : OFFSET_LEN[k] / s
+  // Time for every step in this turn's wind (Infinity where it's land or no-go).
+  const steps = new Float64Array(N * K).fill(Infinity)
+  for (let u = 0; u < N; u++) {
+    const bits = edges[u]
+    if (!bits) continue
+    for (let k = 0; k < K; k++) {
+      if (!(bits & (1 << k))) continue
+      const s = polar.speed(OFFSET_BEARING[k] - field.from[u], field.speed[u]) * CELLS_PER_KNOT
+      if (s >= 0.2) steps[u * K + k] = OFFSET_LEN[k] / s
+    }
   }
-  // Seeds: steps that cross the finish line.
+  // Seeds: steps that cross the finish line, timed to where they cross it.
   const fin = m.gates[G - 1]
-  const lo = { x: Math.min(fin.a.x, fin.b.x) - 4, y: Math.min(fin.a.y, fin.b.y) - 4 }
-  const hi = { x: Math.max(fin.a.x, fin.b.x) + 4, y: Math.max(fin.a.y, fin.b.y) + 4 }
-  for (let y = Math.max(0, lo.y); y <= Math.min(m.height - 1, hi.y); y++)
-    for (let x = Math.max(0, lo.x); x <= Math.min(W - 1, hi.x); x++) {
-      const u = y * W + x
-      const bits = edges[u]
-      if (!bits) continue
-      for (let k = 0; k < OFFSETS.length; k++) {
-        if (!(bits & (1 << k))) continue
-        const p = { x, y }
-        const q = { x: x + OFFSETS[k].x, y: y + OFFSETS[k].y }
-        const c = segmentCross(p, q, fin.a, fin.b)
-        if (!c || c.t <= 1e-9) continue
-        const t = stepTime(u, k) * c.t
-        const s = (G - 1) * N + u
-        if (t < time[s]) {
-          time[s] = t
-          heap.push(t, s)
-        }
+  const finish = gates[G - 1]
+  for (let u = 0; u < N; u++)
+    for (let k = 0; k < K; k++) {
+      if (finish[u * K + k] === 0 || steps[u * K + k] === Infinity) continue
+      const x = u % W
+      const y = (u - x) / W
+      const c = segmentCross({ x, y }, { x: x + OFFSETS[k].x, y: y + OFFSETS[k].y }, fin.a, fin.b)
+      const t = steps[u * K + k] * (c?.t ?? 1)
+      const s = (G - 1) * N + u
+      if (t < time[s]) {
+        time[s] = t
+        heap.push(t, s)
       }
     }
-  // Does the step u→v cross gate g, and which way? 0 = no, 1 = the right way, −1 = the wrong way.
-  const crossing = (g: number, ux: number, uy: number, vx: number, vy: number) => {
-    const gate = m.gates[g]
-    const p = { x: ux, y: uy }
-    const q = { x: vx, y: vy }
-    const c = segmentCross(p, q, gate.a, gate.b)
-    if (!c || c.t <= 1e-9) return 0
-    if (gate.sign === 0) return 1
-    return Math.sign(cross(sub(gate.b, gate.a), sub(q, p))) === gate.sign ? 1 : -1
-  }
   while (heap.size) {
     const [d, s] = heap.pop()
     if (d > time[s]) continue
@@ -166,16 +192,18 @@ function computeRoute(m: GameMap, turn: number, polar: Polar): Route {
     const v = s - layer * N
     const vx = v % W
     const vy = (v - vx) / W
-    for (let k = 0; k < OFFSETS.length; k++) {
+    const here = gates[layer]
+    const before = layer > 0 ? gates[layer - 1] : null
+    for (let k = 0; k < K; k++) {
       const ux = vx - OFFSETS[k].x
       const uy = vy - OFFSETS[k].y
       if (ux < 0 || uy < 0 || ux >= W || uy >= m.height) continue
-      const u = uy * W + ux
-      if (!(edges[u] & (1 << k))) continue
-      const step = stepTime(u, k)
+      const e = (uy * W + ux) * K + k
+      const step = steps[e]
       if (step === Infinity) continue
+      const u = uy * W + ux
       // Same layer: the step mustn't touch this layer's gate.
-      if (crossing(layer, ux, uy, vx, vy) === 0) {
+      if (here[e] === 0) {
         const ps = layer * N + u
         if (d + step < time[ps]) {
           time[ps] = d + step
@@ -183,7 +211,7 @@ function computeRoute(m: GameMap, turn: number, polar: Polar): Route {
         }
       }
       // Previous layer: the step crosses the previous gate the right way.
-      if (layer > 0 && crossing(layer - 1, ux, uy, vx, vy) === 1) {
+      if (before && before[e] === 1) {
         const ps = (layer - 1) * N + u
         if (d + step < time[ps]) {
           time[ps] = d + step
@@ -202,8 +230,6 @@ interface Skill {
   headingStep: number
   /** Helming error: the chosen heading is off by up to this much, degrees. */
   headingNoise: number
-  /** Trimming error, degrees of sheet. */
-  sailNoise: number
   /** Look two turns ahead, using the next turn's wind. */
   lookahead: boolean
   /** Chance of paying attention to other boats this turn. */
@@ -211,9 +237,9 @@ interface Skill {
 }
 
 const SKILL: Record<Difficulty, Skill> = {
-  easy: { headingStep: 10, headingNoise: 12, sailNoise: 20, lookahead: false, rules: 0.35 },
-  medium: { headingStep: 5, headingNoise: 4, sailNoise: 7, lookahead: false, rules: 0.85 },
-  hard: { headingStep: 2, headingNoise: 0, sailNoise: 0, lookahead: true, rules: 1 },
+  easy: { headingStep: 10, headingNoise: 16, lookahead: false, rules: 0.35 },
+  medium: { headingStep: 5, headingNoise: 6, lookahead: false, rules: 0.85 },
+  hard: { headingStep: 2, headingNoise: 0, lookahead: true, rules: 1 },
 }
 
 interface Scored {
@@ -233,14 +259,14 @@ function evaluate(
   m: GameMap,
   r: Route,
   turn: number,
-  polar: Polar,
+  cls: BoatClass,
   pos: Pt,
   boat: { heading: number; speed: number; next: number; unwind: number },
   plan: Plan,
 ): Scored | null {
   const field = windField(m, turn)
   const wind = windAt(field, pos)
-  const mv = simulate(pos, boat, plan, (p) => windAt(field, p), polar)
+  const mv = simulate(pos, boat, plan, (p) => windAt(field, p), cls)
   for (let i = 1; i < mv.path.length; i++) if (landHit(m, mv.path[i - 1], mv.path[i]) !== null) return null
   const prog = crossGatesPath(m, boat.next, boat.unwind, mv.path)
   let base: number
@@ -252,7 +278,7 @@ function evaluate(
     base = 1 + t
     // The route assumes full polar speed; a boat that's slower than it could be needs time to get there.
     // Compared with at least close-hauled speed, so pointing into the wind (no target at all) isn't free.
-    const ref = Math.max(mv.target, polar.speed(45, wind.speed) * 0.85)
+    const ref = Math.max(mv.target, cls.polar.speed(45, wind.speed) * 0.85)
     if (ref > 0.5) extra += 1.2 * clamp((ref - mv.speed) / ref, 0, 1)
     if (samePt(mv.to, pos)) extra += 2
     if (prog.unwind > 0) extra += 20
@@ -276,25 +302,24 @@ function evaluate(
 }
 
 /** Pick this turn's heading and sheet for an AI boat. */
-export function chooseMove(m: GameMap, state: RaceState, boatId: number, polar: Polar): Plan {
+export function chooseMove(m: GameMap, state: RaceState, boatId: number): Plan {
   const me = state.boats[boatId]
+  const cls = boatClass(me.boat)
   const skill = SKILL[me.difficulty ?? "medium"]
   const rnd = mulberry32(hash(m.config.seed, 77, state.turn, boatId))
-  const r = route(m, state.turn, polar)
+  const r = route(m, state.turn, cls)
   const field = windField(m, state.turn)
   const wind = windAt(field, me.pos)
   // Where everyone else will be if they hold their course.
   const others = state.boats
     .filter((b) => b.id !== me.id && racing(b))
-    .map((b) => ({ b, mv: simulate(b.pos, b, { heading: b.heading, sail: b.sail }, (p) => windAt(field, p), polar) }))
-  const sailFor = (heading: number) =>
-    clamp(Math.round(idealSail(twaOf(heading, wind.from)) + (rnd() * 2 - 1) * skill.sailNoise), 0, MAX_SAIL)
+    .map((b) => ({ b, mv: simulate(b.pos, b, { heading: b.heading }, (p) => windAt(field, p), boatClass(b.boat)) }))
 
   const candidates: Scored[] = []
   const offset = Math.floor(rnd() * skill.headingStep)
   for (let h = offset; h < 360; h += skill.headingStep) {
-    const plan = { heading: h, sail: sailFor(h) }
-    const s = evaluate(m, r, state.turn, polar, me.pos, me, plan)
+    const plan = { heading: h }
+    const s = evaluate(m, r, state.turn, cls, me.pos, me, plan)
     if (!s) continue
     if (rnd() < skill.rules) {
       const t = trafficCost(s, others, wind.from)
@@ -308,19 +333,18 @@ export function chooseMove(m: GameMap, state: RaceState, boatId: number, polar: 
   if (!skill.lookahead) {
     const p = candidates[0].plan
     const heading = Math.round(p.heading + (rnd() * 2 - 1) * skill.headingNoise)
-    return { heading: ((heading % 360) + 360) % 360, sail: p.sail }
+    return { heading: ((heading % 360) + 360) % 360 }
   }
 
-  const r2 = route(m, state.turn + 1, polar)
+  const r2 = route(m, state.turn + 1, cls)
   let best = candidates[0]
   let bestScore = Infinity
   for (const c of candidates.slice(0, 8)) {
     if (c.next >= m.gates.length) return c.plan
-    const w2 = windAt(windField(m, state.turn + 1), c.end)
     let second = Infinity
     for (let h = 0; h < 360; h += 5) {
-      const plan = { heading: h, sail: idealSail(twaOf(h, w2.from)) }
-      const s = evaluate(m, r2, state.turn + 1, polar, c.end, { heading: c.heading, speed: c.speed, next: c.next, unwind: 0 }, plan)
+      const plan = { heading: h }
+      const s = evaluate(m, r2, state.turn + 1, cls, c.end, { heading: c.heading, speed: c.speed, next: c.next, unwind: 0 }, plan)
       if (s && s.score < second) second = s.score
     }
     const total = 1 + c.extra + second
@@ -355,5 +379,5 @@ function fallback(m: GameMap, me: Boat, windFrom: number): Plan {
   const twa = twaOf(heading, windFrom)
   if (Math.abs(twa) < 45) heading = Math.round(windFrom - Math.sign(twa || 1) * 45)
   heading = ((heading % 360) + 360) % 360
-  return { heading, sail: idealSail(twaOf(heading, windFrom)) }
+  return { heading }
 }
