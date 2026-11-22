@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sailgrid: turn-based regatta</title>
+    <meta
+      name="description"
+      content="A turn-based sailing regatta on grid paper. Set your heading and trim your sail in shifting winds, round the marks and race AI boats or friends."
+    />
+    <meta property="og:title" content="Sailgrid: turn-based regatta" />
+    <meta
+      property="og:description"
+      content="Pencil racing meets sailing: real polars, shifting wind, island shadows and the racing rules. Race AI boats, friends on one screen, or online."
+    />
+    <meta property="og:type" content="website" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M4 4H28M4 10H28M4 16H28M4 22H28M4 28H28M4 4V28M10 4V28M16 4V28M22 4V28M28 4V28' stroke='%2393c5fd' stroke-width='1'/%3E%3Cpath d='M15 5 L15 24 L6 24 Z' fill='%230ea5e9'/%3E%3Cpath d='M17 9 L17 24 L25 24 Z' fill='%23334155'/%3E%3Cpath d='M5 26 H27' stroke='%23334155' stroke-width='2'/%3E%3C/svg%3E"
+    />
+    <script>
+      // Before first paint, so the page never flashes the wrong theme. Mirrors src/lib/theme.ts: the "theme" key is
+      // shared with the other raffinate.github.io sites; without it, follow the OS.
+      ;(() => {
+        let t = null
+        try {
+          t = localStorage.getItem("theme")
+        } catch {}
+        document.documentElement.dataset.theme =
+          t === "light" || t === "dark" ? t : matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"
+      })()
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

@@ -1,0 +1,371 @@
+import { chooseMove } from "./ai.ts"
+import type { Plan } from "./boat.ts"
+import { type GameMap, generateMap, type RaceConfig } from "./map.ts"
+import { type GuestLink, type HostLink, host, inviteUrl, join } from "./multiplayer.ts"
+import { defaultPolar } from "./polar.ts"
+import { type Entrant, newRace, type RaceState, racing, resolveTurn, retire } from "./race.ts"
+
+/**
+ * Runs a race for this device: local (solo, hot-seat, AI-only), hosting an online race, or joining one.
+ *
+ * Every boat moves at once, so a turn waits for a plan from every human still racing: local players
+ * one after another (with a hand-over screen between them, so nobody sees the others' plans), and
+ * remote players over the network. Then the AI boats choose and the turn is resolved. Online, the host
+ * owns the race; guests send their own plans and render the state the host sends back.
+ */
+
+export type Mode = "local" | "host" | "guest"
+export type Phase = "setup" | "lobby" | "racing"
+
+export type Message =
+  | { type: "hello"; name: string }
+  | { type: "lobby"; config: RaceConfig; entrants: Entrant[]; you: number }
+  | { type: "race"; config: RaceConfig; state: RaceState; you: number; planned: number[] }
+  | { type: "plan"; turn: number; plan: Plan }
+
+export interface Snapshot {
+  mode: Mode
+  phase: Phase
+  config: RaceConfig | null
+  map: GameMap | null
+  state: RaceState | null
+  /** The state before the last turn, to animate the moves. */
+  prev: RaceState | null
+  entrants: Entrant[]
+  /** Boats steered from this device. */
+  mine: number[]
+  /** The boat whose helm is up now. */
+  active: number | null
+  /** Hot-seat: the next player has to take the helm before their controls show. */
+  handoff: boolean
+  /** Boats whose plan for this turn is in (never what the plan is). */
+  planned: number[]
+  resolving: boolean
+  /** With no humans left to wait for, turns run by themselves. */
+  autoplay: boolean
+  inviteUrl: string | null
+  status: string
+  error: string | null
+}
+
+export const BOAT_COLORS = ["#e11d48", "#2563eb", "#16a34a", "#d97706", "#7c3aed", "#0891b2", "#db2777", "#57534e"]
+export const MAX_BOATS = BOAT_COLORS.length
+
+export const IDLE_SNAPSHOT: Snapshot = {
+  mode: "local",
+  phase: "setup",
+  config: null,
+  map: null,
+  state: null,
+  prev: null,
+  entrants: [],
+  mine: [],
+  active: null,
+  handoff: false,
+  planned: [],
+  resolving: false,
+  autoplay: true,
+  inviteUrl: null,
+  status: "",
+  error: null,
+}
+
+const AUTOPLAY_MS = 450
+
+export class Session {
+  private snap: Snapshot = IDLE_SNAPSHOT
+  private plans = new Map<number, Plan>()
+  private hostLink: HostLink | null = null
+  private guestLink: GuestLink | null = null
+  /** Host: which boat each connected guest steers. */
+  private peerBoat = new Map<string, number>()
+  private timer: ReturnType<typeof setTimeout> | null = null
+  private generation = 0
+
+  constructor(private readonly onChange: (s: Snapshot) => void) {}
+
+  get snapshot() {
+    return this.snap
+  }
+
+  private emit(patch: Partial<Snapshot>) {
+    this.snap = { ...this.snap, ...patch }
+    this.onChange(this.snap)
+  }
+
+  private clearTimer() {
+    if (this.timer !== null) clearTimeout(this.timer)
+    this.timer = null
+  }
+
+  /** Back to setup, dropping any connection. */
+  stop() {
+    this.generation++
+    this.clearTimer()
+    this.hostLink?.close()
+    this.guestLink?.close()
+    this.hostLink = null
+    this.guestLink = null
+    this.peerBoat.clear()
+    this.plans.clear()
+    this.snap = IDLE_SNAPSHOT
+    this.onChange(this.snap)
+  }
+
+  // ---- Local races -------------------------------------------------------------------------------
+
+  startLocal(config: RaceConfig, entrants: Entrant[]) {
+    this.stop()
+    this.begin("local", config, entrants)
+  }
+
+  private begin(mode: Mode, config: RaceConfig, entrants: Entrant[]) {
+    const map = generateMap(config)
+    const state = newRace(map, entrants)
+    this.emit({
+      mode,
+      phase: "racing",
+      config,
+      map,
+      state,
+      prev: null,
+      entrants,
+      mine: state.boats.filter((b) => b.controller === "human").map((b) => b.id),
+      error: null,
+      status: "",
+    })
+    this.beginTurn()
+  }
+
+  private waitingFor(state: RaceState) {
+    return state.boats.filter((b) => racing(b) && (b.controller === "human" || b.controller === "remote")).map((b) => b.id)
+  }
+
+  private localTurnOrder(state: RaceState) {
+    return state.boats.filter((b) => racing(b) && b.controller === "human").map((b) => b.id)
+  }
+
+  private beginTurn() {
+    const state = this.snap.state
+    if (!state) return
+    this.plans.clear()
+    const humans = this.localTurnOrder(state)
+    this.emit({ active: state.over ? null : (humans[0] ?? null), handoff: false, planned: [], resolving: false })
+    this.broadcastRace()
+    this.maybeResolve()
+  }
+
+  /** A plan for one of this device's boats. */
+  submit(boatId: number, plan: Plan) {
+    const s = this.snap
+    if (s.phase !== "racing" || !s.state || s.state.over || s.resolving) return
+    if (s.mode === "guest") {
+      this.guestLink?.send({ type: "plan", turn: s.state.turn, plan })
+      this.emit({ planned: [...new Set([...s.planned, boatId])], active: null })
+      return
+    }
+    this.plans.set(boatId, plan)
+    const next = this.localTurnOrder(s.state).find((id) => !this.plans.has(id)) ?? null
+    this.emit({ planned: [...this.plans.keys()], active: next, handoff: next !== null })
+    this.broadcastRace()
+    this.maybeResolve()
+  }
+
+  /** Hot-seat: the next player is at the screen. */
+  takeHelm() {
+    this.emit({ handoff: false })
+  }
+
+  setAutoplay(on: boolean) {
+    this.emit({ autoplay: on })
+    this.clearTimer()
+    this.maybeResolve()
+  }
+
+  /** Spectating: run one turn now. */
+  step() {
+    const s = this.snap
+    if (s.mode === "guest" || !s.state || s.state.over || s.resolving) return
+    if (this.waitingFor(s.state).some((id) => !this.plans.has(id))) return
+    this.clearTimer()
+    this.resolve()
+  }
+
+  private maybeResolve() {
+    const s = this.snap
+    if (s.mode === "guest" || s.phase !== "racing" || !s.state || s.state.over || s.resolving) return
+    const waiting = this.waitingFor(s.state)
+    if (waiting.some((id) => !this.plans.has(id))) return
+    if (waiting.length === 0) {
+      // Nobody to wait for: AI-only from here on.
+      if (s.autoplay && this.timer === null) this.timer = setTimeout(() => ((this.timer = null), this.resolve()), AUTOPLAY_MS)
+      return
+    }
+    this.resolve()
+  }
+
+  private resolve() {
+    const s = this.snap
+    if (!s.state || !s.map || s.state.over) return
+    this.emit({ resolving: true, active: null })
+    const gen = this.generation
+    // Let the "resolving" state paint before the AI thinks.
+    setTimeout(() => {
+      if (gen !== this.generation || !this.snap.state || !this.snap.map) return
+      const state = this.snap.state
+      const map = this.snap.map
+      for (const b of state.boats) if (racing(b) && b.controller === "ai") this.plans.set(b.id, chooseMove(map, state, b.id, defaultPolar))
+      const next = resolveTurn(map, state, this.plans, defaultPolar)
+      this.emit({ prev: state, state: next, resolving: false })
+      this.beginTurn()
+    }, 20)
+  }
+
+  // ---- Hosting -----------------------------------------------------------------------------------
+
+  private remoteEntrants() {
+    return this.snap.entrants.filter((e) => e.controller === "remote")
+  }
+
+  /** Open a lobby others can join, with this device's own players already in it. */
+  async hostLobby(config: RaceConfig, entrants: Entrant[]) {
+    this.stop()
+    const gen = this.generation
+    this.emit({ mode: "host", phase: "lobby", config, entrants, status: "Setting up the connection…" })
+    try {
+      const link = await host({
+        onId: (id) => this.emit({ inviteUrl: inviteUrl(id), status: "Waiting for sailors to join." }),
+        onJoin: () => {},
+        onMessage: (peer, msg) => this.hostReceive(peer, msg),
+        onLeave: (peer) => this.peerLeft(peer),
+        onError: (e) => this.emit({ error: `Connection problem (${e}).` }),
+      })
+      if (gen !== this.generation) return link.close()
+      this.hostLink = link
+    } catch {
+      if (gen === this.generation) this.emit({ error: "Couldn't start online play. Check your connection and try again." })
+    }
+  }
+
+  /** Host: change the course or this device's players while still in the lobby. */
+  updateLobby(config: RaceConfig, entrants: Entrant[]) {
+    if (this.snap.mode !== "host" || this.snap.phase !== "lobby") return
+    this.setEntrants(config, [...entrants, ...this.remoteEntrants()])
+  }
+
+  private setEntrants(config: RaceConfig, entrants: Entrant[]) {
+    // Remote sailors keep their colors distinct from the local ones.
+    const used = new Set(entrants.filter((e) => e.controller !== "remote").map((e) => e.color))
+    const free = BOAT_COLORS.filter((c) => !used.has(c))
+    let k = 0
+    const fixed = entrants.map((e) => (e.controller === "remote" ? { ...e, color: free[k++ % free.length] } : e))
+    this.peerBoat.clear()
+    fixed.forEach((e, i) => e.peer && this.peerBoat.set(e.peer, i))
+    this.emit({ config, entrants: fixed })
+    for (const [peer, you] of this.peerBoat) this.hostLink?.sendTo(peer, { type: "lobby", config, entrants: fixed, you })
+  }
+
+  private hostReceive(peer: string, msg: Message) {
+    const s = this.snap
+    if (msg.type === "hello") {
+      if (s.phase !== "lobby" || !s.config) return
+      if (s.entrants.length >= MAX_BOATS) return
+      const name = msg.name.trim().slice(0, 20) || "Guest"
+      this.setEntrants(s.config, [...s.entrants, { name, color: "", controller: "remote", peer }])
+      return
+    }
+    if (msg.type === "plan") {
+      const id = this.peerBoat.get(peer)
+      if (id === undefined || s.phase !== "racing" || !s.state || s.resolving) return
+      if (msg.turn !== s.state.turn || !racing(s.state.boats[id])) return
+      this.plans.set(id, msg.plan)
+      this.emit({ planned: [...this.plans.keys()] })
+      this.broadcastRace()
+      this.maybeResolve()
+    }
+  }
+
+  private peerLeft(peer: string) {
+    const s = this.snap
+    const id = this.peerBoat.get(peer)
+    if (id === undefined) return
+    if (s.phase === "lobby" && s.config) {
+      this.setEntrants(
+        s.config,
+        s.entrants.filter((e) => e.peer !== peer),
+      )
+      return
+    }
+    if (s.state) {
+      this.peerBoat.delete(peer)
+      this.emit({ state: retire(s.state, id), status: `${s.state.boats[id].name} left the race.` })
+      this.broadcastRace()
+      this.maybeResolve()
+    }
+  }
+
+  /** Host: go. */
+  startHosted() {
+    const s = this.snap
+    if (s.mode !== "host" || s.phase !== "lobby" || !s.config) return
+    this.begin("host", s.config, s.entrants)
+    this.emit({ status: "" })
+  }
+
+  private broadcastRace() {
+    const s = this.snap
+    if (s.mode !== "host" || !this.hostLink || !s.state || !s.config) return
+    for (const [peer, you] of this.peerBoat)
+      this.hostLink.sendTo(peer, { type: "race", config: s.config, state: s.state, you, planned: [...this.plans.keys()] })
+  }
+
+  // ---- Joining -----------------------------------------------------------------------------------
+
+  async join(hostId: string, name: string) {
+    this.stop()
+    const gen = this.generation
+    this.emit({ mode: "guest", phase: "lobby", status: "Connecting to the host…" })
+    try {
+      const link = await join(hostId, {
+        onOpen: () => {
+          this.guestLink?.send({ type: "hello", name })
+          this.emit({ status: "Connected. Waiting for the host to start." })
+        },
+        onMessage: (msg) => this.guestReceive(msg),
+        onClose: () => this.emit({ error: "The host left the race.", active: null }),
+        onError: (e) =>
+          this.emit({ error: e === "peer-unavailable" ? "That race isn't open any more." : `Connection problem (${e}).` }),
+      })
+      if (gen !== this.generation) return link.close()
+      this.guestLink = link
+    } catch {
+      if (gen === this.generation) this.emit({ error: "Couldn't connect. Check the link and try again." })
+    }
+  }
+
+  private guestReceive(msg: Message) {
+    const s = this.snap
+    if (msg.type === "lobby") {
+      this.emit({ config: msg.config, entrants: msg.entrants, mine: [msg.you] })
+      return
+    }
+    if (msg.type !== "race") return
+    const sameMap = s.map && s.config && JSON.stringify(s.config) === JSON.stringify(msg.config)
+    const map = sameMap ? s.map! : generateMap(msg.config)
+    const newTurn = !s.state || s.state.turn !== msg.state.turn
+    const me = msg.state.boats[msg.you]
+    const planned = msg.planned
+    this.emit({
+      phase: "racing",
+      config: msg.config,
+      map,
+      state: msg.state,
+      prev: newTurn ? s.state : s.prev,
+      entrants: msg.state.boats,
+      mine: [msg.you],
+      planned,
+      active: me && racing(me) && !msg.state.over && !planned.includes(msg.you) ? msg.you : null,
+      status: "",
+    })
+  }
+}

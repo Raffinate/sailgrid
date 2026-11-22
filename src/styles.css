@@ -1,0 +1,123 @@
+@layer ui-sdk;
+@import "tailwindcss";
+
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-accent: var(--accent);
+  --color-wind: var(--wind);
+  --color-mark: var(--mark);
+  --color-good: var(--good);
+  --color-warn: var(--warn);
+  --color-danger: var(--danger);
+  --radius-lg: 0.625rem;
+  --radius-md: calc(0.625rem - 2px);
+  --radius-sm: calc(0.625rem - 4px);
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+:root {
+  color-scheme: light;
+  --background: oklch(0.985 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.5 0 0);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.87 0 0);
+  --ring: oklch(0.6 0.12 240);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --accent: oklch(0.96 0 0);
+  --wind: oklch(0.6 0.13 235);
+  --mark: oklch(0.68 0.19 50);
+  --good: oklch(0.55 0.15 150);
+  --warn: oklch(0.66 0.15 70);
+  --danger: oklch(0.55 0.2 27);
+
+  /* The chart: grid paper over water. */
+  --water: oklch(0.975 0.012 230);
+  --grid: oklch(0.6 0.08 230 / 0.13);
+  --grid-major: oklch(0.6 0.08 230 / 0.3);
+  --land: oklch(0.88 0.06 95);
+  --land-edge: oklch(0.55 0.07 80);
+  --puff: oklch(0.45 0.12 245);
+  --lull: oklch(1 0 0);
+  --wind-arrow: oklch(0.45 0.1 240 / 0.55);
+  --course: oklch(0.45 0.02 260 / 0.45);
+  --line: oklch(0.35 0.02 260);
+}
+
+/* Set on <html> before first paint by index.html, then by the theme toggle. */
+[data-theme="dark"] {
+  color-scheme: dark;
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.97 0 0);
+  --card: oklch(0.19 0 0);
+  --muted: oklch(0.24 0 0);
+  --muted-foreground: oklch(0.7 0 0);
+  --border: oklch(1 0 0 / 12%);
+  --input: oklch(1 0 0 / 20%);
+  --ring: oklch(0.7 0.12 240);
+  --primary: oklch(0.92 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --accent: oklch(0.27 0 0);
+  --wind: oklch(0.74 0.12 235);
+  --mark: oklch(0.76 0.16 55);
+  --good: oklch(0.72 0.15 150);
+  --warn: oklch(0.8 0.14 80);
+  --danger: oklch(0.7 0.18 27);
+
+  --water: oklch(0.22 0.03 245);
+  --grid: oklch(0.8 0.06 230 / 0.08);
+  --grid-major: oklch(0.8 0.06 230 / 0.18);
+  --land: oklch(0.38 0.05 120);
+  --land-edge: oklch(0.6 0.06 110);
+  --puff: oklch(0.1 0.04 260);
+  --lull: oklch(0.42 0.05 235);
+  --wind-arrow: oklch(0.85 0.06 230 / 0.45);
+  --course: oklch(0.85 0.02 260 / 0.4);
+  --line: oklch(0.9 0.02 260);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+[data-slot="segmented-control"] {
+  position: relative;
+  isolation: isolate;
+}
+
+[data-slot="segmented-control-indicator"] {
+  position: absolute;
+  z-index: -1;
+  top: var(--segmented-control-indicator-top);
+  left: var(--segmented-control-indicator-left);
+  width: var(--segmented-control-indicator-width);
+  height: var(--segmented-control-indicator-height);
+  transition-property: top, left, width, height;
+  transition-duration: 200ms;
+
+  &[data-activation-direction="none"] {
+    transition: none;
+  }
+}
+
+[data-slot="select-content"] {
+  max-height: min(24rem, var(--available-height));
+  min-width: var(--anchor-width);
+}
