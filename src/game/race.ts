@@ -1,7 +1,7 @@
 import { type Move, type Plan, pathAt, simulate, tackOf } from "./boat.ts"
 import { closestApproach, cross, dirVec, dist, dot, lerp, pointSegment, type Pt, roundPt, samePt, segmentCross, sub } from "./geom.ts"
 import { type GameMap, isWater, landHit, startingPositions } from "./map.ts"
-import { type BoatClassId, boatClass, timeFactor } from "./fleet.ts"
+import { type BoatClassId, boatClass } from "./fleet.ts"
 import { windAt, windField } from "./wind.ts"
 
 export type Controller = "human" | "ai" | "remote"
@@ -23,8 +23,6 @@ export interface Boat extends Entrant {
   pos: Pt
   heading: number
   speed: number
-  /** Handicap time factor for this race (ORC triple number for its wind): corrected = elapsed × rating. */
-  rating: number
   /** Position at the end of every turn so far, starting position first. */
   track: Pt[]
   /** Index of the next gate (start, marks, finish) to cross. */
@@ -89,7 +87,6 @@ export function newRace(map: GameMap, entrants: Entrant[], maxTurns = 400): Race
         pos: spots[id].pos,
         heading: spots[id].heading,
         speed: map.windSpeed * 0.25,
-        rating: timeFactor(e.boat, map.windSpeed),
         track: [spots[id].pos],
         next: 0,
         unwind: 0,
@@ -306,8 +303,8 @@ export function resolveTurn(map: GameMap, state: RaceState, plans: Map<number, P
   }
 }
 
-/** Corrected time: elapsed time × the boat's handicap factor, plus penalties. */
-export const corrected = (b: Boat) => (b.finish === null ? null : b.finish * b.rating + b.penalty)
+/** Race time: elapsed time plus penalties. No handicap: the boat choice is part of the game. */
+export const corrected = (b: Boat) => (b.finish === null ? null : b.finish + b.penalty)
 
 /** Finishers by corrected time, then everyone else by progress. */
 export function standings(state: RaceState): Boat[] {

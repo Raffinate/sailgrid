@@ -3,7 +3,7 @@ import { fbm, hash, mulberry32 } from "./rng.ts"
 
 export type MapSize = "small" | "medium" | "large"
 export type IslandDensity = "none" | "few" | "many"
-export type CourseKind = "windward-leeward" | "islands"
+export type CourseKind = "windward-leeward" | "triangle" | "islands"
 export type Shiftiness = "steady" | "shifty"
 
 export interface RaceConfig {
@@ -11,7 +11,7 @@ export interface RaceConfig {
   size: MapSize
   islands: IslandDensity
   course: CourseKind
-  /** Windward-leeward laps. */
+  /** Laps of a windward-leeward or triangle course. */
   laps: number
   /** Mean true wind speed, knots. */
   windSpeed: number
@@ -214,6 +214,44 @@ function windwardLeeward(cfg: RaceConfig, width: number, height: number, windFro
   return { start: startLine(S, windFrom, width, height), marks }
 }
 
+/** Sides for marks visited in order along `path` (start, marks…, finish): a right turn leaves the mark to starboard. */
+function sidesAlong(path: Pt[]): Side[] {
+  return path.slice(1, -1).map((pos, i) => (cross(sub(pos, path[i]), sub(path[i + 2], pos)) > 0 ? "starboard" : "port"))
+}
+
+/**
+ * The classic triangle: beat to the windward mark, reach out to the wing mark, reach back down to the
+ * leeward mark, and repeat; then a short beat to the finish. Mostly reaching.
+ */
+function triangle(cfg: RaceConfig, width: number, height: number, windFrom: number, rnd: () => number): Layout {
+  const u = dirVec(windFrom)
+  const C = { x: (width - 1) / 2, y: (height - 1) / 2 }
+  const E = upwindExtent(width, height, u, 7)
+  const S = add(C, scale(u, -E * 0.62))
+  const W = cellCenter(add(C, scale(u, E * 0.78)))
+  const L = cellCenter(add(S, scale(u, -5)))
+  // The wing mark sits out to one side, halfway down: reaches of about 125° to the wind.
+  const mid = scale(add(W, L), 0.5)
+  const leg = len(sub(W, L))
+  const sides = [dirVec(windFrom + 90), dirVec(windFrom - 90)]
+  const room = (d: Pt) => {
+    let k = 0
+    while (k < leg * 0.7 && inside(add(mid, scale(d, k + 1)), width, height, 8)) k++
+    return k
+  }
+  const pick = rnd() < 0.5 ? 0 : 1
+  const side = room(sides[pick]) >= room(sides[1 - pick]) ? sides[pick] : sides[1 - pick]
+  const Wing = cellCenter(add(mid, scale(side, Math.max(8, room(side)))))
+  const marks: Pt[] = []
+  for (let lap = 0; lap < cfg.laps; lap++) marks.push(W, Wing, L)
+  const start = startLine(S, windFrom, width, height)
+  const center = scale(add(start[0], start[1]), 0.5)
+  const turns = sidesAlong([center, ...marks, center])
+  return { start, marks: marks.map((pos, i) => ({ pos, side: turns[i] })) }
+}
+
+const inside = (p: Pt, width: number, height: number, m: number) => p.x >= m && p.y >= m && p.x <= width - 1 - m && p.y <= height - 1 - m
+
 function islandsCourse(
   width: number,
   height: number,
@@ -248,11 +286,7 @@ function islandsCourse(
   const path = [S, ...marks, S]
   return {
     start: startLine(S, windFrom, width, height),
-    marks: marks.map((pos, i) => {
-      // A right turn on screen leaves the mark to starboard.
-      const turn = cross(sub(pos, path[i]), sub(path[i + 2], pos))
-      return { pos, side: turn > 0 ? "starboard" : "port" }
-    }),
+    marks: marks.map((pos, i) => ({ pos, side: sidesAlong(path)[i] })),
   }
 }
 
@@ -294,7 +328,9 @@ export function generateMap(cfg: RaceConfig): GameMap {
     const layout =
       cfg.course === "islands"
         ? islandsCourse(width, height, windFrom, h, mulberry32(hash(cfg.seed, 2, attempt)))
-        : windwardLeeward(cfg, width, height, windFrom, mulberry32(hash(cfg.seed, 2)))
+        : cfg.course === "triangle"
+          ? triangle(cfg, width, height, windFrom, mulberry32(hash(cfg.seed, 2)))
+          : windwardLeeward(cfg, width, height, windFrom, mulberry32(hash(cfg.seed, 2)))
     if (!layout) continue
     const [la, lb] = layout.start
     const startCenter = scale(add(la, lb), 0.5)

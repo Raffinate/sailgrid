@@ -18,8 +18,8 @@ describe("Session", () => {
     let snap!: Snapshot
     const s = new Session((x) => (snap = x))
     const entrants: Entrant[] = [
-      { name: "Ana", color: "#f00", controller: "human", boat: "first-40-7" },
-      { name: "Bo", color: "#00f", controller: "human", boat: "first-40-7" },
+      { name: "Ana", color: "#f00", controller: "human", boat: "j-35" },
+      { name: "Bo", color: "#00f", controller: "human", boat: "j-35" },
       { name: "Tern", color: "#0f0", controller: "ai", difficulty: "easy", boat: "melges-24" },
     ]
     s.startLocal(cfg, entrants)

@@ -15,7 +15,7 @@ function who(b: Boat, mine: number[]) {
 
 function progress(map: GameMap, b: Boat) {
   if (isRetired(b)) return "Retired"
-  if (b.finish !== null) return `elapsed ${fmt(b.finish)}`
+  if (b.finish !== null) return `finished ${fmt(b.finish)}`
   const g = map.gates[b.next]
   if (!g) return ""
   return g.kind === "start" ? "Starting" : g.kind === "finish" ? "To finish" : `To mark ${b.next}`
@@ -37,13 +37,13 @@ function BoatRow(props: { boat: Boat; place: number; map: GameMap; mine: number[
           </Show>
         </div>
         <div class="text-xs text-muted-foreground">
-          {boatClass(b().boat).name} × {b().rating.toFixed(3)} · {who(b(), props.mine)}
+          {boatClass(b().boat).name} · {who(b(), props.mine)}
         </div>
         <div class="text-xs text-muted-foreground tabular-nums">
           {progress(props.map, b())}
-          <Show when={corrected(b()) !== null}>
+          <Show when={corrected(b()) !== null && b().penalty > 0}>
             {" "}
-            → <span class="font-medium text-foreground">corrected {fmt(corrected(b())!)}</span>
+            + {b().penalty} penalty → <span class="font-medium text-foreground">{fmt(corrected(b())!)}</span>
           </Show>
         </div>
       </td>
@@ -53,7 +53,7 @@ function BoatRow(props: { boat: Boat; place: number; map: GameMap; mine: number[
   )
 }
 
-/** Positions: finishers by corrected time (elapsed + penalties), then the fleet by progress. */
+/** Positions: finishers by time (elapsed + penalties), then the fleet by progress. */
 export function Scoreboard(props: { map: GameMap; state: RaceState; mine: number[]; planned: number[]; showPlanned: boolean }) {
   return (
     <Panel title={props.state.over ? "Results" : "Fleet"}>
@@ -83,7 +83,7 @@ export function Scoreboard(props: { map: GameMap; state: RaceState; mine: number
           </tbody>
         </table>
         <p class="mt-2 text-xs text-muted-foreground">
-          Times are in turns (minutes). Corrected time = elapsed × the boat's handicap factor, plus penalties.
+          Times are in turns (minutes). Penalties add to your time.
         </p>
       </div>
     </Panel>

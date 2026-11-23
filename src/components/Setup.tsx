@@ -31,10 +31,10 @@ const KINDS = [
 const AI_NAMES = ["Tern", "Petrel", "Gannet", "Skua", "Fulmar", "Kittiwake", "Shearwater", "Puffin"]
 
 export const defaultPlayers = (): SetupPlayer[] => [
-  { name: "You", kind: "human", boat: "first-40-7" },
+  { name: "You", kind: "human", boat: "j-35" },
   { name: "Tern", kind: "hard", boat: "melges-24" },
   { name: "Petrel", kind: "medium", boat: "j-109" },
-  { name: "Gannet", kind: "easy", boat: "farr-30" },
+  { name: "Gannet", kind: "easy", boat: "x-35" },
 ]
 
 export const toEntrants = (players: SetupPlayer[]): Entrant[] =>
@@ -61,18 +61,20 @@ export function CoursePanel(props: { config: RaceConfig; disabled?: boolean; onC
   return (
     <Panel title="Course" class="space-y-3.5">
       <Setting label="Course">
-        <Segmented<CourseKind>
+        <Choice<CourseKind>
           label="Course"
           value={props.config.course}
           disabled={props.disabled}
+          class="w-56"
           options={[
-            ["windward-leeward", "Windward–leeward"],
+            ["windward-leeward", "Windward–leeward: beats and runs"],
+            ["triangle", "Triangle: mostly reaching"],
             ["islands", "Round the islands"],
           ]}
           onChange={(v) => set("course", v)}
         />
       </Setting>
-      <Show when={props.config.course === "windward-leeward"}>
+      <Show when={props.config.course !== "islands"}>
         <Setting label="Laps">
           <Segmented
             label="Laps"
@@ -239,26 +241,25 @@ export function PlayersPanel(props: { players: SetupPlayer[]; disabled?: boolean
 }
 
 /**
- * The four boats and their handicaps. They race together on corrected time (elapsed × factor, ORC
- * inshore triple number), so the choice is about which boat suits today's wind and course.
+ * The four boats. About equally fast overall, each quickest in different conditions, and no handicap:
+ * the choice is about which boat suits today's wind and course.
  */
 export function FleetPanel(props: { windSpeed: number }) {
-  const band = () => windBand(props.windSpeed)
   return (
     <Panel title="The fleet" class="space-y-3">
       <p class="-mt-2 text-xs text-muted-foreground">
-        Real ORC data, the median of each class's certificates. Results are on corrected time: elapsed × factor. Factors
-        for {WIND_BAND_LABEL[band()]} ({props.windSpeed} kn):
+        Real speeds from ORC certificates, no handicap: first across the line wins. Pick the boat for the conditions:
+        today is {WIND_BAND_LABEL[windBand(props.windSpeed)]} ({props.windSpeed} kn).
       </p>
       <ul class="space-y-2.5">
         <For each={FLEET}>
           {(c) => (
             <li class="text-sm">
-              <div class="flex items-baseline justify-between gap-2">
-                <span class="font-medium">{c.name}</span>
-                <span class="text-xs tabular-nums text-muted-foreground">× {c.rating[band()].toFixed(3)}</span>
-              </div>
+              <div class="font-medium">{c.name}</div>
               <p class="text-xs text-muted-foreground">{c.blurb}</p>
+              <p class="text-xs">
+                <span class="text-good">Best:</span> {c.strengths} <span class="text-danger">Weak:</span> {c.weaknesses}
+              </p>
               <p class="text-xs text-muted-foreground tabular-nums">
                 {c.loa.toFixed(1)} m · {(c.displacement / 1000).toFixed(1)} t · {c.certificates} certificates
               </p>

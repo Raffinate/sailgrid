@@ -16,9 +16,9 @@ const YEARS = [2026, 2025]
 const MIN_CERTIFICATES = 5
 
 const CLASSES = [
-  { id: "first-40-7", name: "Beneteau First 40.7", match: /^FIRST 40\.?7$/ },
+  { id: "j-35", name: "J/35", match: /^J ?35$/ },
   { id: "j-109", name: "J/109", match: /^J ?109$/ },
-  { id: "farr-30", name: "Farr 30", match: /^FARR 30( OD)?$/ },
+  { id: "x-35", name: "X-35", match: /^X ?35( OD)?$/ },
   { id: "melges-24", name: "Melges 24", match: /^MELGES 24( OD)?$/ },
 ]
 

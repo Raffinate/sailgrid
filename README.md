@@ -9,23 +9,29 @@ one of four real boats against the others on corrected time, as ORC club classes
 
 - **Grid.** A fine grid (80×56 to 140×96 intersections). Boats move several intersections a turn and land on
   the nearest one.
-- **Boats.** Four popular designs of different types that race together in ORC club classes: Beneteau First
-  40.7 (heavy cruiser-racer), J/109 (asymmetric spinnaker), Farr 30 (light racer) and Melges 24 (planing
-  sportboat). `scripts/fetch-boats.ts` (`pnpm fetch-boats`, run by hand once) downloads the 2026 ORC
-  certificates from data.orc.org. For each class it saves the median of 42–96 certificates into
-  `src/data/boats.json`: the VPP speed table (beat, 52°–150°, run), GPH, the inshore triple-number factors,
-  size and weight. `src/game/fleet.ts` turns that into polars and adds a pinching zone a few degrees above
-  the beat angle, a no-go zone closer to the wind, and a dead run. It also sets each class's handling (turn
-  rate and how quickly speed builds and fades, from size and weight), with `TUNING` multipliers for balance.
-- **Handicap.** Corrected time = elapsed × the boat's ORC inshore triple-number factor for the race's wind
-  (light under 9 kn, medium 9–14, strong above), relative to the First 40.7, plus penalties.
+- **Boats.** Four popular designs: J/35, J/109, X-35 and Melges 24. They were chosen from ORC's 2026
+  certificates because their real polars are about equally fast overall (within ~1.5%), yet each is the
+  quickest in different conditions:
+  - J/35: upwind, in any wind.
+  - J/109: reaching and running in light and medium air.
+  - X-35: the all-rounder; close to the best on every point of sail in light and medium air, the best at
+    nothing (1.5% slower than its certificates, see `PACE`).
+  - Melges 24: reaching and downwind in strong air, and reaching in medium.
+
+  There's no handicap: first across the line wins, so choosing the boat for the day's wind and course is
+  part of the game. `scripts/fetch-boats.ts` (`pnpm fetch-boats`, run by hand once) downloads the
+  certificates from data.orc.org and saves the median of each class (32–75 certificates) into
+  `src/data/boats.json`. That file holds the VPP speed table (beat, 52°–150°, run), size and weight, plus
+  GPH and triple numbers for reference. `src/game/fleet.ts` turns it into polars, unchanged except for `PACE` and a
+  pinching zone a few degrees above the beat angle, a no-go zone closer to the wind, and a dead run. It
+  also sets each class's handling (turn rate, and how quickly speed builds and fades) from size and weight.
 - **Scale.** One turn is a minute of sailing; a cell is about 39 m, roughly three lengths of the 40-foot
   boat (`src/game/units.ts`).
 - **Handling.** Each turn is simulated a second at a time (`src/game/boat.ts`):
-  - The boat turns onto the new heading at 3°/s when stopped, up to its class's rate (10–15°/s) at speed,
+  - The boat turns onto the new heading at 3°/s when stopped, up to its class's rate (11–13°/s) at speed,
     so it sails an arc. The rudder costs a little speed; the crew keeps the sails trimmed.
-  - Speed closes on the polar speed with the class's time constant: about 9 s for the Melges 24, 22 s for
-    the First 40.7, a little slower when slowing down.
+  - Speed closes on the polar speed with the class's time constant: about 12 s for the Melges 24, 17–19 s
+    for the others, a little slower when slowing down.
   - Inside the no-go zone the sails give no drive and the boat stops within 5–10 s. A tack costs about
     2.5 boat lengths and a gybe a few percent of speed; bearing away costs almost nothing.
   - The wind is sampled along the way.
@@ -39,9 +45,10 @@ one of four real boats against the others on corrected time, as ORC club classes
   - a slow, large-scale bias that favours one part of the course;
   - wind shadow behind islands (longer behind higher land, and gusty), wind speeding up between islands and
     round headlands, and wind bending along a shore it blows onto.
-- **Maps.** Generated from a seed (`src/game/map.ts`): islands from fractal noise, and either a
-  windward–leeward course (1–3 laps) or a loop around the islands with 3–4 marks. The generator clears water
-  around every mark and the start line, and checks that the course can be sailed.
+- **Maps.** Generated from a seed (`src/game/map.ts`): islands from fractal noise, and one of three
+  courses: windward–leeward (beats and runs, 1–3 laps), a triangle (a beat and two reaches, 1–3 laps), or
+  a loop round the islands with 3–4 marks. The generator clears water around every mark and the start
+  line, and checks that the course can be sailed.
 - **Course.** Cross the start line upwind, then round each mark on its side, then cross the finish. A mark
   counts once you cross the ray running out from it, away from the course, in the right direction; going
   round the wrong way has to be undone first.
