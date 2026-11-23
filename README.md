@@ -48,10 +48,11 @@ that suits the day's wind and course, and then the best route round it.
     turns round each one, so the wind is stronger on one side, lighter on the other, and swings in direction;
   - wind shadow behind islands (longer behind higher land, and gusty), wind speeding up between islands and
     round headlands, and wind bending along a shore it blows onto;
-  - optionally a front (the **Weather** setting): a line that sweeps across the course partway through the
-    race, timed from a rough estimate of the race's length. Ahead of it the wind backs and eases, on the line
-    there's a squall, and behind it the wind has veered 35–70° and is 20–50% stronger and gustier. It's drawn
-    on the chart like a front on a weather map.
+  - possibly a front: a line that sweeps across the course partway through the race. The **Chance of a
+    front** setting is the forecast (none, 25%, 50%, 75% or certain); the seed decides whether it comes. It's
+    timed from a rough estimate of the race's length. Ahead of it the wind backs and eases, on the line
+    there's a squall, and behind it the wind has veered 35–70° and is 20–50% stronger and gustier. It isn't
+    drawn or announced: the race description gives only the chance, and the wind shows when it comes.
 
   None of this is a fluid simulation: the wind at each intersection is computed fresh each turn from the seed
   and the turn number, so the motion comes from that recipe changing smoothly with time.

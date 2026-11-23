@@ -8,7 +8,6 @@ import {
   drawBoat,
   drawCourse,
   drawPreview,
-  drawFront,
   drawStatic,
   drawTrack,
   drawWind,
@@ -103,7 +102,6 @@ export function Board(props: BoardProps) {
     }
 
     const focusBoat = frame.focus !== null ? state?.boats[frame.focus] : undefined
-    drawFront(ctx, map, v, c, turn)
     drawCourse(ctx, map, v, c, focusBoat && racing(focusBoat) ? focusBoat.next : state ? null : 0)
     if (!state) return
 

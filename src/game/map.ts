@@ -5,8 +5,9 @@ export type MapSize = "small" | "medium" | "large"
 export type IslandDensity = "none" | "few" | "many"
 export type CourseKind = "windward-leeward" | "triangle" | "islands"
 export type Shiftiness = "steady" | "shifty"
-/** Settled weather, or a front that sweeps across the course partway through the race. */
-export type Weather = "settled" | "front"
+/** Chances of a front sweeping across the course partway through the race, percent: the forecast. */
+export const FRONT_CHANCES = [0, 25, 50, 75, 100] as const
+export type FrontChance = (typeof FRONT_CHANCES)[number]
 
 export interface RaceConfig {
   seed: number
@@ -18,7 +19,8 @@ export interface RaceConfig {
   /** Mean true wind speed, knots. */
   windSpeed: number
   shifts: Shiftiness
-  weather: Weather
+  /** Whether a front actually comes is rolled from the seed, so every player gets the same weather. */
+  frontChance: FrontChance
 }
 
 export const defaultConfig = (seed: number): RaceConfig => ({
@@ -29,7 +31,7 @@ export const defaultConfig = (seed: number): RaceConfig => ({
   laps: 2,
   windSpeed: 12,
   shifts: "shifty",
-  weather: "settled",
+  frontChance: 0,
 })
 
 /** Pick from weighted options. */
@@ -82,7 +84,16 @@ export function randomConfig(rnd: () => number = Math.random): RaceConfig {
     ),
     windSpeed: 5 + Math.floor(rnd() * 18),
     shifts: rnd() < 0.4 ? "steady" : "shifty",
-    weather: rnd() < 0.25 ? "front" : "settled",
+    frontChance: weighted<FrontChance>(
+      [
+        [0, 4],
+        [25, 3],
+        [50, 2],
+        [75, 1],
+        [100, 1],
+      ],
+      rnd(),
+    ),
   }
 }
 
@@ -92,11 +103,14 @@ const COURSE_LABEL: Record<CourseKind, string> = {
   islands: "Round the islands",
 }
 
+const frontForecast = (chance: FrontChance) =>
+  chance === 0 ? "" : chance === 100 ? ", a front coming" : `, ${chance}% chance of a front`
+
 /** One line on what a race will be like: "Triangle · 2 laps · 16 kn, shifty · few islands · medium map". */
 export function describeConfig(c: RaceConfig): string {
   return [
     COURSE_LABEL[c.course] + (c.course === "islands" ? "" : ` · ${c.laps} ${c.laps === 1 ? "lap" : "laps"}`),
-    `${c.windSpeed} kn, ${c.shifts}` + (c.weather === "front" ? ", front passing" : ""),
+    `${c.windSpeed} kn, ${c.shifts}` + frontForecast(c.frontChance),
     c.islands === "none" ? "open water" : `${c.islands} islands`,
     `${c.size} map`,
   ].join(" · ")

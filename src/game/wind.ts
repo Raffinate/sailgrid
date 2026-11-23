@@ -134,9 +134,14 @@ const frontCache = new WeakMap<GameMap, Front | null>()
  * cold front in the northern hemisphere, the wind veers behind it, 35–70°, and is a fifth to half stronger.
  */
 export function frontOf(m: GameMap): Front | null {
-  if (m.config.weather !== "front") return null
   const hit = frontCache.get(m)
   if (hit !== undefined) return hit
+  // The forecast gives the chance; the seed decides whether it comes.
+  const comes = mulberry32(hash(m.config.seed, 32))() * 100 < m.config.frontChance
+  if (!comes) {
+    frontCache.set(m, null)
+    return null
+  }
   const r = mulberry32(hash(m.config.seed, 31))
   const shift = 35 + r() * 35
   const gain = 1.2 + r() * 0.3
@@ -164,38 +169,6 @@ export function behindFront(m: GameMap, f: Front, turn: number, p: Pt): number {
   const n = dirVec(f.toward)
   const center = { x: (m.width - 1) / 2, y: (m.height - 1) / 2 }
   return f.speed * (turn - f.arrival) - ((p.x - center.x) * n.x + (p.y - center.y) * n.y)
-}
-
-/** The front line this turn, as a long segment through the map (for drawing), or null with no front. */
-export function frontLine(m: GameMap, turn: number): { a: Pt; b: Pt; toward: number } | null {
-  const f = frontOf(m)
-  if (!f) return null
-  const n = dirVec(f.toward)
-  const along = { x: -n.y, y: n.x }
-  const d = f.speed * (turn - f.arrival)
-  const c = { x: (m.width - 1) / 2 + n.x * d, y: (m.height - 1) / 2 + n.y * d }
-  const L = m.width + m.height
-  return { a: { x: c.x - along.x * L, y: c.y - along.y * L }, b: { x: c.x + along.x * L, y: c.y + along.y * L }, toward: f.toward }
-}
-
-export type FrontState = { state: "coming"; turns: number; from: number } | { state: "passing"; from: number } | { state: "passed" }
-
-/** Where the front is relative to the map: still to come (and in how many turns it reaches it), crossing it, or gone. */
-export function frontState(m: GameMap, turn: number): FrontState | null {
-  const f = frontOf(m)
-  if (!f) return null
-  const corners = [
-    { x: 0, y: 0 },
-    { x: m.width - 1, y: 0 },
-    { x: 0, y: m.height - 1 },
-    { x: m.width - 1, y: m.height - 1 },
-  ].map((p) => behindFront(m, f, turn, p))
-  const from = norm(f.toward + 180)
-  const first = Math.max(...corners)
-  const last = Math.min(...corners)
-  if (first < 0) return { state: "coming", turns: Math.max(1, Math.ceil(-first / f.speed)), from }
-  if (last < FRONT_WIDTH) return { state: "passing", from }
-  return { state: "passed" }
 }
 
 // ---- Eddies ------------------------------------------------------------------------------------

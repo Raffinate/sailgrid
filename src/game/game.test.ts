@@ -7,7 +7,7 @@ import { defaultConfig, describeConfig, type GameMap, generateMap, isWater, MAP_
 import { mulberry32 } from "./rng.ts"
 import { crossGates, type Entrant, newRace, type RaceState, resolveTurn, rightOfWay, standings } from "./race.ts"
 import { BOAT_LENGTH_METERS, CELL_METERS, CELLS_PER_KNOT } from "./units.ts"
-import { CARRY, eddiesAt, frontOf, frontState, windAt, windField } from "./wind.ts"
+import { behindFront, CARRY, eddiesAt, frontOf, windAt, windField } from "./wind.ts"
 
 const first = boatClass("j-35")
 const polar = first.polar
@@ -293,7 +293,7 @@ describe("eddies", () => {
 
 describe("front", () => {
   const settled = generateMap({ ...defaultConfig(52), islands: "none", shifts: "steady" })
-  const m = generateMap({ ...settled.config, weather: "front" })
+  const m = generateMap({ ...settled.config, frontChance: 100 })
   const f = frontOf(m)!
   const mean = (turn: number, g: (a: number, b: number) => number, pick: "from" | "speed") => {
     const a = windField(m, turn)[pick]
@@ -303,14 +303,29 @@ describe("front", () => {
     return sum / a.length
   }
 
-  it("arrives partway through the race, seen coming", () => {
+  it("arrives partway through the race, not already on the course at the start", () => {
     expect(frontOf(settled)).toBeNull()
     expect(f.shift).toBeGreaterThanOrEqual(35)
     expect(f.shift).toBeLessThanOrEqual(70)
-    expect(frontState(m, 0)).toMatchObject({ state: "coming" })
-    expect(frontState(m, f.arrival)).toMatchObject({ state: "passing" })
-    expect(frontState(m, f.arrival + (m.width + m.height) / f.speed)).toMatchObject({ state: "passed" })
+    const corners = [
+      { x: 0, y: 0 },
+      { x: m.width - 1, y: 0 },
+      { x: 0, y: m.height - 1 },
+      { x: m.width - 1, y: m.height - 1 },
+    ]
+    for (const p of corners) expect(behindFront(m, f, 0, p)).toBeLessThan(0)
+    expect(behindFront(m, f, f.arrival, { x: (m.width - 1) / 2, y: (m.height - 1) / 2 })).toBeCloseTo(0)
   })
+
+  it("comes with about the forecast chance", () => {
+    for (const chance of [25, 50, 75] as const) {
+      let fronts = 0
+      for (let seed = 0; seed < 400; seed++)
+        if (frontOf(generateMap({ ...defaultConfig(seed), size: "small", islands: "none", frontChance: chance }))) fronts++
+      expect(fronts / 400).toBeGreaterThan(chance / 100 - 0.08)
+      expect(fronts / 400).toBeLessThan(chance / 100 + 0.08)
+    }
+  }, 60_000)
 
   it("leaves the wind as it was ahead of it, and veered and stronger behind it", () => {
     const early = 1
@@ -361,7 +376,7 @@ describe("AI race", () => {
   }, 60_000)
 
   it("finishes a race when a front comes through", () => {
-    const cfg: RaceConfig = { ...defaultConfig(13), laps: 1, weather: "front" }
+    const cfg: RaceConfig = { ...defaultConfig(13), laps: 1, frontChance: 100 }
     const { state, map } = runRace(cfg, [
       { name: "Hard", color: "#000", controller: "ai", difficulty: "hard", boat: "j-109" },
       { name: "Easy", color: "#222", controller: "ai", difficulty: "easy", boat: "x-35" },

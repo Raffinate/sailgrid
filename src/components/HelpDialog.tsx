@@ -69,9 +69,10 @@ export function HelpDialog(props: { open: boolean; onOpenChange: (open: boolean)
           <p class="mt-2">
             Small eddies, a few hundred metres across, drift downwind with the breeze for several minutes and fade out.
             The air turns round each one, so on one side of an eddy the wind is stronger and on the other lighter, and its
-            direction swings as you sail past. Some races have a front: a blue line with teeth on the chart, moving the way
-            the teeth point. Ahead of it the wind backs and eases; on the line it's squally; behind it the wind has veered
-            35–70° and is stronger and gustier. Being on the right side of the course when it arrives can win the race.
+            direction swings as you sail past. A race can have a front (the race description gives the chance
+            of one, not whether or when it comes): it sweeps across the course partway through. Ahead of it the wind backs and eases; on
+            the line it's squally; behind it the wind has veered 35–70° and is stronger and gustier. Watch the wind upwind
+            to see it coming: being on the right side of the course when it arrives can win the race.
           </p>
           <H>The course</H>
           <p>

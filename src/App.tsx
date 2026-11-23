@@ -20,12 +20,12 @@ import { ThemeToggle } from "./components/ThemeToggle.tsx"
 import { buttonClass, Kbd, Panel } from "./components/ui.tsx"
 import type { Plan } from "./game/boat.ts"
 import { type BoatClassId, DEFAULT_BOAT, FLEET } from "./game/fleet.ts"
-import { type GameMap, generateMap, type RaceConfig, randomConfig } from "./game/map.ts"
+import { generateMap, type RaceConfig, randomConfig } from "./game/map.ts"
 import { parseJoinId } from "./game/multiplayer.ts"
 import { previewPlan, raceTime, racing, standings } from "./game/race.ts"
 import { randomSeed } from "./game/rng.ts"
 import { IDLE_SNAPSHOT, Session, type Snapshot } from "./game/session.ts"
-import { frontState, windAt, windField } from "./game/wind.ts"
+import { windAt, windField } from "./game/wind.ts"
 
 const SETUP_KEY = "sailgrid:setup"
 
@@ -40,8 +40,8 @@ function loadSetup(): { config: RaceConfig; players: SetupPlayer[] } {
       // Setups saved before there was a choice of boats.
       boat: FLEET.some((c) => c.id === p.boat) ? p.boat : DEFAULT_BOAT,
     }))
-    // Setups saved before there was weather were all settled.
-    return { config: { ...fallback.config, weather: "settled", ...saved.config }, players }
+    // Setups saved before fronts had none.
+    return { config: { ...fallback.config, frontChance: 0, ...saved.config }, players }
   } catch {
     return fallback
   }
@@ -53,17 +53,6 @@ function saveSetup(config: RaceConfig, players: SetupPlayer[]) {
   } catch {
     // Storage can be blocked; the setup just won't be remembered.
   }
-}
-
-const POINTS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
-const compassPoint = (deg: number) => POINTS[Math.round((((deg % 360) + 360) % 360) / 45) % 8]
-
-function frontText(map: GameMap, turn: number) {
-  const f = frontState(map, turn)
-  if (!f) return ""
-  if (f.state === "coming") return ` · front coming from the ${compassPoint(f.from)}, reaches the course in ~${f.turns} ${f.turns === 1 ? "turn" : "turns"}`
-  if (f.state === "passing") return " · front crossing the course"
-  return " · the front has passed"
 }
 
 const joinParam = parseJoinId(new URLSearchParams(location.search).get("join") ?? "")
@@ -355,7 +344,7 @@ export function App() {
                 {(s) => (
                   <span class="tabular-nums">
                     Turn {s().turn + 1} · base wind {Math.round(windField(snap().map!, s().turn).baseSpeed)} kn from{" "}
-                    {Math.round(windField(snap().map!, s().turn).baseFrom)}°{frontText(snap().map!, s().turn)}
+                    {Math.round(windField(snap().map!, s().turn).baseFrom)}°
                   </span>
                 )}
               </Show>

@@ -3,7 +3,7 @@ import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "@ui-sdk/solid
 import { Input } from "@ui-sdk/solid/input"
 import { createSignal, For, Show } from "solid-js"
 import { type BoatClassId, boatClass, DEFAULT_BOAT, FLEET, WIND_BAND_LABEL, windBand } from "../game/fleet.ts"
-import { type CourseKind, describeConfig, type IslandDensity, type MapSize, type RaceConfig, randomConfig, type Shiftiness, type Weather } from "../game/map.ts"
+import { type CourseKind, describeConfig, type IslandDensity, type MapSize, type FrontChance, type RaceConfig, randomConfig, type Shiftiness } from "../game/map.ts"
 import { parseJoinId } from "../game/multiplayer.ts"
 import type { Difficulty, Entrant } from "../game/race.ts"
 import { randomSeed } from "../game/rng.ts"
@@ -165,16 +165,19 @@ export function CoursePanel(props: { config: RaceConfig; disabled?: boolean; onC
               onChange={(v) => set("shifts", v)}
             />
           </Setting>
-          <Setting label="Weather">
-            <Segmented<Weather>
-              label="Weather"
-              value={props.config.weather}
+          <Setting label="Chance of a front">
+            <Segmented
+              label="Chance of a front"
+              value={String(props.config.frontChance)}
               disabled={props.disabled}
               options={[
-                ["settled", "Settled"],
-                ["front", "Front passes"],
+                ["0", "None"],
+                ["25", "25%"],
+                ["50", "50%"],
+                ["75", "75%"],
+                ["100", "Certain"],
               ]}
-              onChange={(v) => set("weather", v)}
+              onChange={(v) => set("frontChance", Number(v) as FrontChance)}
             />
           </Setting>
           <RangeField
