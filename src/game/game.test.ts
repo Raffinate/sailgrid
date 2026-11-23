@@ -3,7 +3,8 @@ import { chooseMove, route, timeToFinish } from "./ai.ts"
 import { maneuver, simulate, tackOf } from "./boat.ts"
 import { boatClass, FLEET, windBand } from "./fleet.ts"
 import { angleDiff, bearing, closestApproach, dirVec, segmentCross } from "./geom.ts"
-import { defaultConfig, type GameMap, generateMap, isWater, MAP_SIZES, type RaceConfig, startingPositions } from "./map.ts"
+import { defaultConfig, describeConfig, type GameMap, generateMap, isWater, MAP_SIZES, type RaceConfig, randomConfig, startingPositions } from "./map.ts"
+import { mulberry32 } from "./rng.ts"
 import { crossGates, type Entrant, newRace, type RaceState, resolveTurn, rightOfWay, standings } from "./race.ts"
 import { BOAT_LENGTH_METERS, CELL_METERS, CELLS_PER_KNOT } from "./units.ts"
 import { CARRY, windAt, windField } from "./wind.ts"
@@ -180,6 +181,22 @@ describe("maps", () => {
     const r = route(m, 0, first)
     for (const s of startingPositions(m, 8)) expect(Number.isFinite(timeToFinish(r, m, 0, s.pos))).toBe(true)
   })
+
+  it("rolls random races that can always be sailed", () => {
+    const rnd = mulberry32(99)
+    const kinds = new Set<string>()
+    for (let i = 0; i < 24; i++) {
+      const cfg = randomConfig(rnd)
+      kinds.add(cfg.course)
+      expect(cfg.windSpeed).toBeGreaterThanOrEqual(5)
+      expect(cfg.windSpeed).toBeLessThanOrEqual(22)
+      expect(describeConfig(cfg)).toContain(`${cfg.windSpeed} kn`)
+      const m = generateMap(cfg)
+      const r = route(m, 0, first)
+      for (const s of startingPositions(m, 4)) expect(Number.isFinite(timeToFinish(r, m, 0, s.pos))).toBe(true)
+    }
+    expect(kinds.size).toBe(3)
+  }, 60_000)
 
   it("is deterministic per seed", () => {
     const a = generateMap(configs[1])

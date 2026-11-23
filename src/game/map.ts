@@ -28,6 +28,75 @@ export const defaultConfig = (seed: number): RaceConfig => ({
   shifts: "shifty",
 })
 
+/** Pick from weighted options. */
+function weighted<T>(options: [T, number][], r: number): T {
+  let total = 0
+  for (const [, w] of options) total += w
+  let x = r * total
+  for (const [v, w] of options) {
+    if ((x -= w) < 0) return v
+  }
+  return options[options.length - 1][0]
+}
+
+/** A random race: course, laps, map, islands, wind strength and shiftiness all rolled at once. */
+export function randomConfig(rnd: () => number = Math.random): RaceConfig {
+  const course = weighted<CourseKind>(
+    [
+      ["windward-leeward", 1],
+      ["triangle", 1],
+      ["islands", 1],
+    ],
+    rnd(),
+  )
+  return {
+    seed: Math.floor(rnd() * 1_000_000),
+    course,
+    laps: weighted(
+      [
+        [1, 5],
+        [2, 4],
+        [3, 1],
+      ],
+      rnd(),
+    ),
+    size: weighted<MapSize>(
+      [
+        ["small", 3],
+        ["medium", 5],
+        ["large", 2],
+      ],
+      rnd(),
+    ),
+    islands: weighted<IslandDensity>(
+      [
+        ["none", 2],
+        ["few", 5],
+        ["many", 3],
+      ],
+      rnd(),
+    ),
+    windSpeed: 5 + Math.floor(rnd() * 18),
+    shifts: rnd() < 0.4 ? "steady" : "shifty",
+  }
+}
+
+const COURSE_LABEL: Record<CourseKind, string> = {
+  "windward-leeward": "Windward–leeward",
+  triangle: "Triangle",
+  islands: "Round the islands",
+}
+
+/** One line on what a race will be like: "Triangle · 2 laps · 16 kn, shifty · few islands · medium map". */
+export function describeConfig(c: RaceConfig): string {
+  return [
+    COURSE_LABEL[c.course] + (c.course === "islands" ? "" : ` · ${c.laps} ${c.laps === 1 ? "lap" : "laps"}`),
+    `${c.windSpeed} kn, ${c.shifts}`,
+    c.islands === "none" ? "open water" : `${c.islands} islands`,
+    `${c.size} map`,
+  ].join(" · ")
+}
+
 export const MAP_SIZES: Record<MapSize, { width: number; height: number }> = {
   small: { width: 80, height: 56 },
   medium: { width: 110, height: 76 },

@@ -1,8 +1,9 @@
 import { Button } from "@ui-sdk/solid/button"
+import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "@ui-sdk/solid/collapsible"
 import { Input } from "@ui-sdk/solid/input"
 import { createSignal, For, Show } from "solid-js"
 import { type BoatClassId, boatClass, DEFAULT_BOAT, FLEET, WIND_BAND_LABEL, windBand } from "../game/fleet.ts"
-import type { CourseKind, IslandDensity, MapSize, RaceConfig, Shiftiness } from "../game/map.ts"
+import { type CourseKind, describeConfig, type IslandDensity, type MapSize, type RaceConfig, randomConfig, type Shiftiness } from "../game/map.ts"
 import { parseJoinId } from "../game/multiplayer.ts"
 import type { Difficulty, Entrant } from "../game/race.ts"
 import { randomSeed } from "../game/rng.ts"
@@ -55,111 +56,150 @@ function Setting(props: { label: string; children: import("solid-js").Element })
   )
 }
 
-/** Course, wind and map settings. */
+/** The race: roll a random one, or open Customize to set the course, wind and map by hand. */
 export function CoursePanel(props: { config: RaceConfig; disabled?: boolean; onChange: (c: RaceConfig) => void }) {
   const set = <K extends keyof RaceConfig>(k: K, v: RaceConfig[K]) => props.onChange({ ...props.config, [k]: v })
   return (
-    <Panel title="Course" class="space-y-3.5">
-      <Setting label="Course">
-        <Choice<CourseKind>
-          label="Course"
-          value={props.config.course}
-          disabled={props.disabled}
-          class="w-56"
-          options={[
-            ["windward-leeward", "Windward–leeward: beats and runs"],
-            ["triangle", "Triangle: mostly reaching"],
-            ["islands", "Round the islands"],
-          ]}
-          onChange={(v) => set("course", v)}
-        />
-      </Setting>
-      <Show when={props.config.course !== "islands"}>
-        <Setting label="Laps">
-          <Segmented
-            label="Laps"
-            value={String(props.config.laps)}
-            disabled={props.disabled}
-            options={[
-              ["1", "1"],
-              ["2", "2"],
-              ["3", "3"],
-            ]}
-            onChange={(v) => set("laps", Number(v))}
-          />
-        </Setting>
-      </Show>
-      <Setting label="Map">
-        <Segmented<MapSize>
-          label="Map size"
-          value={props.config.size}
-          disabled={props.disabled}
-          options={[
-            ["small", "Small"],
-            ["medium", "Medium"],
-            ["large", "Large"],
-          ]}
-          onChange={(v) => set("size", v)}
-        />
-      </Setting>
-      <Setting label="Islands">
-        <Segmented<IslandDensity>
-          label="Islands"
-          value={props.config.islands}
-          disabled={props.disabled}
-          options={[
-            ["none", "None"],
-            ["few", "Few"],
-            ["many", "Many"],
-          ]}
-          onChange={(v) => set("islands", v)}
-        />
-      </Setting>
-      <Setting label="Wind shifts">
-        <Segmented<Shiftiness>
-          label="Wind shifts"
-          value={props.config.shifts}
-          disabled={props.disabled}
-          options={[
-            ["steady", "Steady"],
-            ["shifty", "Shifty"],
-          ]}
-          onChange={(v) => set("shifts", v)}
-        />
-      </Setting>
-      <RangeField
-        label="Wind speed"
-        unit="kn"
-        value={props.config.windSpeed}
-        min={5}
-        max={25}
-        step={1}
-        color="var(--wind)"
-        onChange={(v) => !props.disabled && set("windSpeed", Math.round(v))}
-      />
-      <div class="flex items-end gap-2">
-        <label class="min-w-0 flex-1">
-          <span class="mb-1 block text-sm font-medium">Map number</span>
-          <Input
-            type="number"
-            value={String(props.config.seed)}
-            disabled={props.disabled}
-            onChange={(e: Event) => {
-              const n = Number((e.currentTarget as HTMLInputElement).value)
-              if (Number.isFinite(n) && n >= 0) set("seed", Math.floor(n))
-            }}
-            class="h-9 w-full rounded-md border border-input bg-card px-3 text-sm tabular-nums shadow-xs outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
-          />
-        </label>
+    <Panel title="Race" class="space-y-3">
+      <div class="flex items-start justify-between gap-3">
+        <p class="text-sm" aria-live="polite">
+          {describeConfig(props.config)}
+        </p>
         <Button
-          class={buttonClass.outline}
+          class={`${buttonClass.outline} shrink-0`}
           disabled={props.disabled}
-          onClick={() => set("seed", randomSeed())}
-          data-ph-capture-attribute-action="new-map"
+          onClick={() => props.onChange(randomConfig())}
+          data-ph-capture-attribute-action="random-race"
         >
-          New map
+          <svg viewBox="0 0 24 24" class="size-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true">
+            <rect x="3" y="3" width="18" height="18" rx="3" />
+            <circle cx="8" cy="8" r="1.2" fill="currentColor" />
+            <circle cx="16" cy="16" r="1.2" fill="currentColor" />
+            <circle cx="12" cy="12" r="1.2" fill="currentColor" />
+          </svg>
+          Random race
         </Button>
       </div>
+      <Collapsible>
+        <CollapsibleTrigger
+          class="group flex w-full items-center justify-between gap-3 rounded-md border-t border-border pt-3 text-left text-sm font-medium text-muted-foreground outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/40"
+          data-ph-capture-attribute-action="toggle-customize"
+        >
+          Customize
+          <svg
+            viewBox="0 0 24 24"
+            class="size-4 opacity-60 transition-transform group-data-open:rotate-180"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            aria-hidden="true"
+          >
+            <path d="m6 9 6 6 6-6" />
+          </svg>
+        </CollapsibleTrigger>
+        <CollapsiblePanel class="space-y-3.5 pt-3.5">
+          <Setting label="Course">
+            <Choice<CourseKind>
+              label="Course"
+              value={props.config.course}
+              disabled={props.disabled}
+              class="w-56"
+              options={[
+                ["windward-leeward", "Windward–leeward: beats and runs"],
+                ["triangle", "Triangle: mostly reaching"],
+                ["islands", "Round the islands"],
+              ]}
+              onChange={(v) => set("course", v)}
+            />
+          </Setting>
+          <Show when={props.config.course !== "islands"}>
+            <Setting label="Laps">
+              <Segmented
+                label="Laps"
+                value={String(props.config.laps)}
+                disabled={props.disabled}
+                options={[
+                  ["1", "1"],
+                  ["2", "2"],
+                  ["3", "3"],
+                ]}
+                onChange={(v) => set("laps", Number(v))}
+              />
+            </Setting>
+          </Show>
+          <Setting label="Map">
+            <Segmented<MapSize>
+              label="Map size"
+              value={props.config.size}
+              disabled={props.disabled}
+              options={[
+                ["small", "Small"],
+                ["medium", "Medium"],
+                ["large", "Large"],
+              ]}
+              onChange={(v) => set("size", v)}
+            />
+          </Setting>
+          <Setting label="Islands">
+            <Segmented<IslandDensity>
+              label="Islands"
+              value={props.config.islands}
+              disabled={props.disabled}
+              options={[
+                ["none", "None"],
+                ["few", "Few"],
+                ["many", "Many"],
+              ]}
+              onChange={(v) => set("islands", v)}
+            />
+          </Setting>
+          <Setting label="Wind shifts">
+            <Segmented<Shiftiness>
+              label="Wind shifts"
+              value={props.config.shifts}
+              disabled={props.disabled}
+              options={[
+                ["steady", "Steady"],
+                ["shifty", "Shifty"],
+              ]}
+              onChange={(v) => set("shifts", v)}
+            />
+          </Setting>
+          <RangeField
+            label="Wind speed"
+            unit="kn"
+            value={props.config.windSpeed}
+            min={5}
+            max={25}
+            step={1}
+            color="var(--wind)"
+            onChange={(v) => !props.disabled && set("windSpeed", Math.round(v))}
+          />
+          <div class="flex items-end gap-2">
+            <label class="min-w-0 flex-1">
+              <span class="mb-1 block text-sm font-medium">Map number</span>
+              <Input
+                type="number"
+                value={String(props.config.seed)}
+                disabled={props.disabled}
+                onChange={(e: Event) => {
+                  const n = Number((e.currentTarget as HTMLInputElement).value)
+                  if (Number.isFinite(n) && n >= 0) set("seed", Math.floor(n))
+                }}
+                class="h-9 w-full rounded-md border border-input bg-card px-3 text-sm tabular-nums shadow-xs outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
+              />
+            </label>
+            <Button
+              class={buttonClass.outline}
+              disabled={props.disabled}
+              onClick={() => set("seed", randomSeed())}
+              data-ph-capture-attribute-action="new-map"
+            >
+              New map
+            </Button>
+          </div>
+        </CollapsiblePanel>
+      </Collapsible>
     </Panel>
   )
 }

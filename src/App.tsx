@@ -19,7 +19,7 @@ import { ThemeToggle } from "./components/ThemeToggle.tsx"
 import { buttonClass, Kbd, Panel } from "./components/ui.tsx"
 import type { Plan } from "./game/boat.ts"
 import { DEFAULT_BOAT, FLEET } from "./game/fleet.ts"
-import { defaultConfig, generateMap, type RaceConfig } from "./game/map.ts"
+import { generateMap, type RaceConfig, randomConfig } from "./game/map.ts"
 import { parseJoinId } from "./game/multiplayer.ts"
 import { corrected, previewPlan, racing, standings } from "./game/race.ts"
 import { randomSeed } from "./game/rng.ts"
@@ -29,7 +29,7 @@ import { windAt, windField } from "./game/wind.ts"
 const SETUP_KEY = "sailgrid:setup"
 
 function loadSetup(): { config: RaceConfig; players: SetupPlayer[] } {
-  const fallback = { config: defaultConfig(randomSeed()), players: defaultPlayers() }
+  const fallback = { config: randomConfig(), players: defaultPlayers() }
   try {
     const raw = localStorage.getItem(SETUP_KEY)
     if (!raw) return fallback
@@ -328,9 +328,9 @@ export function App() {
 
         <aside class="space-y-4">
           <Show when={snap().phase === "setup"}>
-            <StartPanel defaultJoin="" onStart={start} onHost={hostOnline} onJoin={joinOnline} />
-            <PlayersPanel players={players()} onChange={editPlayers} />
             <CoursePanel config={config()} onChange={editConfig} />
+            <PlayersPanel players={players()} onChange={editPlayers} />
+            <StartPanel defaultJoin="" onStart={start} onHost={hostOnline} onJoin={joinOnline} />
             <FleetPanel windSpeed={config().windSpeed} />
           </Show>
 
