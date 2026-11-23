@@ -22,6 +22,8 @@ export type Message =
   /** A guest in the lobby changes their name or boat, or says they're ready (or not, to change again). */
   | { type: "sailor"; name: string; boat: BoatClassId; ready: boolean }
   | { type: "lobby"; config: RaceConfig; entrants: Entrant[]; you: number }
+  /** The host took this guest out of the lobby. */
+  | { type: "removed" }
   | { type: "race"; config: RaceConfig; state: RaceState; you: number; planned: number[] }
   | { type: "plan"; turn: number; plan: Plan }
 
@@ -87,6 +89,8 @@ export class Session {
   private guestLink: GuestLink | null = null
   /** Host: which boat each connected guest steers. */
   private peerBoat = new Map<string, number>()
+  /** Host: connections taken out of the lobby, ignored from then on. */
+  private removed = new Set<string>()
   private timer: ReturnType<typeof setTimeout> | null = null
   private generation = 0
 
@@ -115,6 +119,7 @@ export class Session {
     this.hostLink = null
     this.guestLink = null
     this.peerBoat.clear()
+    this.removed.clear()
     this.plans.clear()
     this.snap = IDLE_SNAPSHOT
     this.onChange(this.snap)
@@ -277,8 +282,21 @@ export class Session {
     for (const [peer, you] of this.peerBoat) this.hostLink?.sendTo(peer, { type: "lobby", config, entrants: fixed, you })
   }
 
+  /** Host, in the lobby: take a guest out (say, one who never gets ready). They're told, and can't come back on that connection. */
+  removeGuest(peer: string) {
+    const s = this.snap
+    if (s.mode !== "host" || s.phase !== "lobby" || !s.config || !this.peerBoat.has(peer)) return
+    this.removed.add(peer)
+    this.hostLink?.sendTo(peer, { type: "removed" })
+    this.setEntrants(
+      s.config,
+      s.entrants.filter((e) => e.peer !== peer),
+    )
+  }
+
   private hostReceive(peer: string, msg: Message) {
     const s = this.snap
+    if (this.removed.has(peer)) return
     if (msg.type === "hello") {
       if (s.phase !== "lobby" || !s.config) return
       if (s.entrants.length >= MAX_BOATS) return
@@ -376,6 +394,13 @@ export class Session {
 
   private guestReceive(msg: Message) {
     const s = this.snap
+    if (msg.type === "removed") {
+      // Hang up first, so the closing connection doesn't read as the host leaving.
+      this.guestLink?.close()
+      this.guestLink = null
+      this.emit({ entrants: [], mine: [], status: "", error: "The host removed you from the race." })
+      return
+    }
     if (msg.type === "lobby") {
       const was = s.mine.length ? s.entrants[s.mine[0]] : undefined
       const now = msg.entrants[msg.you]

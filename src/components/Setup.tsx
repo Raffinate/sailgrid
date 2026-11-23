@@ -427,6 +427,8 @@ export function LobbyPanel(props: {
   onStart: () => void
   onLeave: () => void
   onSailor: (name: string, boat: BoatClassId, ready: boolean) => void
+  /** Host: take an online sailor out of the lobby. */
+  onRemove: (peer: string) => void
 }) {
   const [copied, setCopied] = createSignal(false)
   const me = () => (props.you === null ? undefined : props.entrants[props.you])
@@ -489,6 +491,23 @@ export function LobbyPanel(props: {
                     {boatClass(e().boat).name} ·{" "}
                     <span class={e().controller === "remote" ? (e().ready ? "text-good" : "text-warn") : ""}>{lobbyRole(e())}</span>
                   </span>
+                  <Show when={props.host && e().peer}>
+                    {(peer) => (
+                      <button
+                        type="button"
+                        aria-label={`Remove ${e().name} from the race`}
+                        title={`Remove ${e().name} from the race`}
+                        onClick={() => props.onRemove(peer())}
+                        data-ph-capture-attribute-action="lobby-remove"
+                        class="-my-1 shrink-0 rounded-md p-1 text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/40"
+                      >
+                        <svg viewBox="0 0 24 24" class="size-3.5" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                          <path d="M18 6 6 18" />
+                          <path d="m6 6 12 12" />
+                        </svg>
+                      </button>
+                    )}
+                  </Show>
                 </li>
               )}
             </For>
@@ -517,7 +536,7 @@ export function LobbyPanel(props: {
         </Button>
         <Show when={props.host && waiting().length}>
           <span class="text-xs text-muted-foreground" aria-live="polite">
-            Waiting for {waiting().map((e) => e.name).join(", ")} to be ready.
+            Waiting for {waiting().map((e) => e.name).join(", ")} to be ready. Or remove them with ×.
           </span>
         </Show>
       </div>

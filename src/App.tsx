@@ -370,6 +370,7 @@ export function App() {
               }}
               onLeave={() => session.stop()}
               onSailor={setSailor}
+              onRemove={(peer) => session.removeGuest(peer)}
             />
             <Show when={snap().mode === "host"}>
               <PlayersPanel players={players()} onChange={editPlayers} />

@@ -140,4 +140,32 @@ describe("Session", () => {
     g.stop()
     h.stop()
   })
+
+  it("lets the host remove a guest who never gets ready", async () => {
+    let host!: Snapshot
+    let idle!: Snapshot
+    const h = new Session((x) => (host = x))
+    const g = new Session((x) => (idle = x))
+    await h.hostLobby(cfg, [{ name: "Ana", color: "#e11d48", controller: "human", boat: "j-35" }])
+    await until(() => host.inviteUrl !== null)
+    await g.join("HOST", "Idle", "j-109")
+    await until(() => host.entrants.length === 2 && idle.mine.length === 1)
+    h.startHosted()
+    expect(host.phase).toBe("lobby")
+
+    h.removeGuest(host.entrants[1].peer!)
+    expect(host.entrants.map((e) => e.name)).toEqual(["Ana"])
+    await until(() => idle.error !== null)
+    expect(idle.error).toMatch(/removed you/)
+    expect(idle.mine).toEqual([])
+
+    // Nothing more from that connection counts, and the race can start.
+    g.setSailor("Idle", "j-109", true)
+    await new Promise((r) => setTimeout(r, 20))
+    expect(host.entrants).toHaveLength(1)
+    h.startHosted()
+    expect(host.phase).toBe("racing")
+    g.stop()
+    h.stop()
+  })
 })
