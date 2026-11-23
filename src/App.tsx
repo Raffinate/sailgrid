@@ -178,18 +178,22 @@ export function App() {
     if (e.metaKey || e.ctrlKey || e.altKey || helpOpen()) return
     const target = e.target as HTMLElement | null
     if (target?.closest("input, textarea, [contenteditable], [role=listbox], [role=slider], [data-slot=select-content]")) return
+    const go = e.key === "Enter" || e.key === " "
+    // A button reached with Tab gets its own Enter and Space; one that was just clicked doesn't keep them.
+    if (go && target?.closest("button, a, [role=button]")?.matches(":focus-visible")) return
     if (!activeBoat()) {
-      if (snap().handoff && (e.key === "Enter" || e.key === " ")) {
+      if (snap().handoff && go) {
         e.preventDefault()
         session.takeHelm()
       }
       return
     }
     const p = plan()
-    const big = e.shiftKey ? 10 : 1
-    if (e.key === "ArrowLeft") setPlan({ heading: (p.heading - big + 360) % 360 })
-    else if (e.key === "ArrowRight") setPlan({ heading: (p.heading + big) % 360 })
-    else if (e.key === "Enter") submit()
+    // Arrows turn 10° at a time; Shift for a single degree.
+    const step = e.shiftKey ? 1 : 10
+    if (e.key === "ArrowLeft") setPlan({ heading: (p.heading - step + 360) % 360 })
+    else if (e.key === "ArrowRight") setPlan({ heading: (p.heading + step) % 360 })
+    else if (go) submit()
     else return
     e.preventDefault()
   }

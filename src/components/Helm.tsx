@@ -168,11 +168,11 @@ export function Helm(props: HelmProps) {
         data-ph-capture-attribute-action="sail"
       >
         Sail this turn
-        <Kbd>Enter</Kbd>
+        <Kbd>Space</Kbd>
       </Button>
       <p class="text-center text-xs text-muted-foreground">
         Click or drag on the chart to aim. <Kbd>←</Kbd>
-        <Kbd>→</Kbd> to steer (<Kbd>Shift</Kbd> for 10°).
+        <Kbd>→</Kbd> steer 10° (<Kbd>Shift</Kbd> for 1°). <Kbd>Space</Kbd> or <Kbd>Enter</Kbd> to sail.
       </p>
     </Panel>
   )
