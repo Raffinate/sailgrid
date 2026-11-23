@@ -27,6 +27,32 @@ export function gateLabel(map: GameMap, next: number) {
   return `Round mark ${next}, leave it to ${g.side}`
 }
 
+export interface MoveNote {
+  /** A word or two, for the action bar. */
+  short: string
+  /** The full explanation, for the helm card. */
+  long: string
+  /** It costs you: a penalty, or no drive at all. Tacks and gybes are just worth knowing. */
+  warn: boolean
+}
+
+/** What's worth knowing about a planned move before sailing it. */
+export function moveNotes(p: PlanPreview, noGo: number): MoveNote[] {
+  const mv = p.move
+  const out: MoveNote[] = []
+  if (Math.abs(mv.twa) < noGo) out.push({ short: "No drive", long: "Pointing into the wind: no drive.", warn: true })
+  if (p.aground) out.push({ short: "Runs aground", long: "This runs aground: you'll stop short and take a penalty.", warn: true })
+  if (p.touchesMark) out.push({ short: "Touches mark", long: "Too close: you'll touch the mark (penalty).", warn: true })
+  if (mv.tacked)
+    out.push({
+      short: "Tack",
+      long: "Tacking: the sails stop drawing as the bow crosses the wind, and you must keep clear of other boats.",
+      warn: false,
+    })
+  if (mv.gybed) out.push({ short: "Gybe", long: "Gybing: the boom comes across, a little speed lost.", warn: false })
+  return out
+}
+
 function Row(props: { label: string; value: string; sub?: string; tone?: "good" | "warn" | "danger" }) {
   return (
     <div class="flex items-baseline justify-between gap-3 text-sm">
@@ -67,16 +93,7 @@ export function Helm(props: HelmProps) {
   const cls = () => boatClass(props.boat.boat)
   const noGo = () => cls().polar.minTwa(props.windSpeed)
   const dips = () => mv().carried < Math.min(props.boat.speed, mv().speed) - 0.3
-  const warnings = () => {
-    const w: string[] = []
-    const p = props.preview
-    if (Math.abs(mv().twa) < noGo()) w.push("Pointing into the wind: no drive.")
-    if (mv().tacked) w.push("Tacking: the sails stop drawing as the bow crosses the wind, and you must keep clear of other boats.")
-    if (mv().gybed) w.push("Gybing: the boom comes across, a little speed lost.")
-    if (p.aground) w.push("This runs aground: you'll stop short and take a penalty.")
-    if (p.touchesMark) w.push("Too close: you'll touch the mark (penalty).")
-    return w
-  }
+  const warnings = () => moveNotes(props.preview, noGo()).map((n) => n.long)
   return (
     <Panel class="space-y-4">
       <div class="flex items-center justify-between gap-3">

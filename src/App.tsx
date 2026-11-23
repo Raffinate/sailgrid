@@ -1,6 +1,7 @@
 import { Button } from "@ui-sdk/solid/button"
 import { createEffect, createMemo, createSignal, onSettled, Show } from "solid-js"
 import { track } from "./analytics.ts"
+import { ActionBar } from "./components/ActionBar.tsx"
 import { Board } from "./components/Board.tsx"
 import { Helm } from "./components/Helm.tsx"
 import { HelpDialog } from "./components/HelpDialog.tsx"
@@ -440,6 +441,18 @@ export function App() {
           </Show>
         </aside>
       </div>
+
+      <Show when={activeBoat() && preview() && windHere()}>
+        <ActionBar
+          boat={activeBoat()!}
+          plan={plan()}
+          preview={preview()!}
+          windSpeed={windHere()!.speed}
+          disabled={snap().resolving}
+          onPlan={setPlan}
+          onSubmit={submit}
+        />
+      </Show>
 
       <HelpDialog open={helpOpen()} onOpenChange={setHelpOpen} />
     </div>
