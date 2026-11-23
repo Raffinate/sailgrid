@@ -3,6 +3,7 @@ import { dirVec, lerp, type Pt, scale, sub } from "../game/geom.ts"
 import type { GameMap, Gate } from "../game/map.ts"
 import type { Boat } from "../game/race.ts"
 import type { WindField } from "../game/wind.ts"
+import { coastline } from "./coastline.ts"
 
 /** Canvas drawing of the chart: grid paper, islands, wind, the course, tracks and boats. */
 
@@ -71,49 +72,22 @@ interface LandShape {
 
 const landCache = new WeakMap<GameMap, LandShape>()
 
-/** Marching squares over the land height field, in grid units. */
+/** The land and coastline as canvas paths, in grid units. */
 function landShape(m: GameMap): LandShape {
   const hit = landCache.get(m)
   if (hit) return hit
   const fill = new Path2D()
   const coast = new Path2D()
-  const W = m.width
-  for (let y = 0; y < m.height - 1; y++)
-    for (let x = 0; x < W - 1; x++) {
-      const corners: [number, number, number][] = [
-        [x, y, m.h[y * W + x]],
-        [x + 1, y, m.h[y * W + x + 1]],
-        [x + 1, y + 1, m.h[(y + 1) * W + x + 1]],
-        [x, y + 1, m.h[(y + 1) * W + x]],
-      ]
-      const inside = corners.filter((c) => c[2] > 0).length
-      if (inside === 0) continue
-      if (inside === 4) {
-        fill.rect(x, y, 1, 1)
-        continue
-      }
-      const poly: { p: Pt; edge: boolean }[] = []
-      for (let i = 0; i < 4; i++) {
-        const a = corners[i]
-        const b = corners[(i + 1) % 4]
-        if (a[2] > 0) poly.push({ p: { x: a[0], y: a[1] }, edge: false })
-        if (a[2] > 0 !== b[2] > 0) {
-          const t = a[2] / (a[2] - b[2])
-          poly.push({ p: { x: a[0] + (b[0] - a[0]) * t, y: a[1] + (b[1] - a[1]) * t }, edge: true })
-        }
-      }
-      fill.moveTo(poly[0].p.x, poly[0].p.y)
-      for (const q of poly.slice(1)) fill.lineTo(q.p.x, q.p.y)
-      fill.closePath()
-      for (let i = 0; i < poly.length; i++) {
-        const a = poly[i]
-        const b = poly[(i + 1) % poly.length]
-        if (a.edge && b.edge) {
-          coast.moveTo(a.p.x, a.p.y)
-          coast.lineTo(b.p.x, b.p.y)
-        }
-      }
-    }
+  const shore = coastline(m)
+  for (const poly of shore.land) {
+    fill.moveTo(poly[0].x, poly[0].y)
+    for (const q of poly.slice(1)) fill.lineTo(q.x, q.y)
+    fill.closePath()
+  }
+  for (const [a, b] of shore.coast) {
+    coast.moveTo(a.x, a.y)
+    coast.lineTo(b.x, b.y)
+  }
   const shape = { fill, coast }
   landCache.set(m, shape)
   return shape
