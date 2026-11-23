@@ -21,7 +21,7 @@ import type { Plan } from "./game/boat.ts"
 import { DEFAULT_BOAT, FLEET } from "./game/fleet.ts"
 import { generateMap, type RaceConfig, randomConfig } from "./game/map.ts"
 import { parseJoinId } from "./game/multiplayer.ts"
-import { corrected, previewPlan, racing, standings } from "./game/race.ts"
+import { previewPlan, raceTime, racing, standings } from "./game/race.ts"
 import { randomSeed } from "./game/rng.ts"
 import { IDLE_SNAPSHOT, Session, type Snapshot } from "./game/session.ts"
 import { windAt, windField } from "./game/wind.ts"
@@ -297,10 +297,10 @@ export function App() {
                 <div class="absolute top-3 left-1/2 -translate-x-1/2 rounded-lg border border-border bg-card/95 px-4 py-2 text-center shadow-lg">
                   <div class="flex items-center justify-center gap-2 text-sm font-semibold">
                     <span class="inline-block size-3 rounded-full" style={{ background: w().color }} />
-                    {corrected(w()) === null ? "Race over" : `${w().name} wins`}
+                    {raceTime(w()) === null ? "Race over" : `${w().name} wins`}
                   </div>
-                  <Show when={corrected(w()) !== null}>
-                    <div class="text-xs text-muted-foreground tabular-nums">corrected time {corrected(w())!.toFixed(2)} turns</div>
+                  <Show when={raceTime(w()) !== null}>
+                    <div class="text-xs text-muted-foreground tabular-nums">race time {raceTime(w())!.toFixed(2)} turns</div>
                   </Show>
                 </div>
               )}

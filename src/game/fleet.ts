@@ -87,7 +87,7 @@ const INFO: Record<BoatClassId, { blurb: string; strengths: string; weaknesses: 
 
 /**
  * Overall speed adjustments, from in-game calibration (each boat raced alone by the best AI in light,
- * medium and strong air on every course type; see README). The real X-35 is a strong all-rounder and was
+ * medium and strong air on every course type). The real X-35 is a strong all-rounder and was
  * the best pick in all light and medium conditions; 1.5% slower, the J/35 and J/109 get their chances.
  */
 const PACE: Partial<Record<BoatClassId, number>> = { "x-35": 0.985 }

@@ -304,13 +304,13 @@ export function resolveTurn(map: GameMap, state: RaceState, plans: Map<number, P
 }
 
 /** Race time: elapsed time plus penalties. No handicap: the boat choice is part of the game. */
-export const corrected = (b: Boat) => (b.finish === null ? null : b.finish + b.penalty)
+export const raceTime = (b: Boat) => (b.finish === null ? null : b.finish + b.penalty)
 
-/** Finishers by corrected time, then everyone else by progress. */
+/** Finishers by race time, then everyone else by progress. */
 export function standings(state: RaceState): Boat[] {
   return [...state.boats].sort((a, b) => {
-    const ca = corrected(a)
-    const cb = corrected(b)
+    const ca = raceTime(a)
+    const cb = raceTime(b)
     if (ca !== null && cb !== null) return ca - cb
     if (ca !== null) return -1
     if (cb !== null) return 1

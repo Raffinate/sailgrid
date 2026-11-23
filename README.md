@@ -2,8 +2,9 @@
 
 A turn-based sailing regatta on grid paper. It grew out of pencil racing (Racetrack): every boat sits on a grid
 intersection and its speed carries over from turn to turn. Here the speed comes from the wind and the boat. Each
-turn you choose a **heading** (the crew trims the sails), then every boat sails its minute at once. You race
-one of four real boats against the others on corrected time, as ORC club classes do.
+turn you choose a **heading** (the crew trims the sails), then every boat sails its minute at once. You sail
+one of four real boats, with no handicap: first across the line wins, so the race is won by picking the boat
+that suits the day's wind and course, and then the best route round it.
 
 ## The game
 

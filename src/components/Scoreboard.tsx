@@ -1,7 +1,7 @@
 import { For, Show } from "solid-js"
 import { boatClass } from "../game/fleet.ts"
 import type { GameMap } from "../game/map.ts"
-import { type Boat, corrected, isRetired, type RaceState, RULE_TEXT, racing, standings } from "../game/race.ts"
+import { type Boat, isRetired, type RaceState, RULE_TEXT, raceTime, racing, standings } from "../game/race.ts"
 import { Panel } from "./ui.tsx"
 
 const fmt = (t: number) => t.toFixed(2)
@@ -41,9 +41,9 @@ function BoatRow(props: { boat: Boat; place: number; map: GameMap; mine: number[
         </div>
         <div class="text-xs text-muted-foreground tabular-nums">
           {progress(props.map, b())}
-          <Show when={corrected(b()) !== null && b().penalty > 0}>
+          <Show when={raceTime(b()) !== null && b().penalty > 0}>
             {" "}
-            + {b().penalty} penalty → <span class="font-medium text-foreground">{fmt(corrected(b())!)}</span>
+            + {b().penalty} penalty → <span class="font-medium text-foreground">{fmt(raceTime(b())!)}</span>
           </Show>
         </div>
       </td>
