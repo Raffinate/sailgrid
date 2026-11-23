@@ -1,6 +1,6 @@
 import { Button } from "@ui-sdk/solid/button"
 import { Show } from "solid-js"
-import { type Plan, tackOf } from "../game/boat.ts"
+import { type Plan, tackOf, twaOf } from "../game/boat.ts"
 import { boatClass } from "../game/fleet.ts"
 import type { GameMap } from "../game/map.ts"
 import type { Boat, PlanPreview } from "../game/race.ts"
@@ -96,9 +96,13 @@ export function Helm(props: HelmProps) {
         windFrom={props.windFrom}
         noGo={noGo()}
         color={props.boat.color}
+        speedAt={(h) => cls().polar.speed(twaOf(h, props.windFrom), props.windSpeed)}
         disabled={props.disabled}
         onHeading={(heading) => props.onPlan({ heading })}
       />
+      <p class="-mt-2 text-center text-xs text-muted-foreground">
+        The blue curve is your boat's speed on each heading in this wind; the blue dots are the best angles up and downwind.
+      </p>
 
       <RangeField
         label="Heading"

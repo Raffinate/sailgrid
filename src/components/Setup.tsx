@@ -8,7 +8,6 @@ import { parseJoinId } from "../game/multiplayer.ts"
 import type { Difficulty, Entrant } from "../game/race.ts"
 import { randomSeed } from "../game/rng.ts"
 import { BOAT_COLORS, MAX_BOATS } from "../game/session.ts"
-import { boatSeries, PolarChart } from "./PolarChart.tsx"
 import { RangeField } from "./RangeField.tsx"
 import { buttonClass, Choice, Panel, Segmented } from "./ui.tsx"
 
@@ -292,15 +291,11 @@ export function FleetPanel(props: { windSpeed: number }) {
         Real speeds from ORC certificates, no handicap: first across the line wins. Pick the boat for the conditions:
         this race is {WIND_BAND_LABEL[windBand(props.windSpeed)]} ({props.windSpeed} kn).
       </p>
-      <PolarChart windSpeed={props.windSpeed} />
       <ul class="space-y-2.5">
         <For each={FLEET}>
           {(c) => (
             <li class="text-sm">
-              <div class="flex items-center gap-1.5 font-medium">
-                <span class="inline-block h-0.5 w-3 rounded-full" style={{ background: boatSeries(c.id) }} />
-                {c.name}
-              </div>
+              <div class="font-medium">{c.name}</div>
               <p class="text-xs text-muted-foreground">{c.blurb}</p>
               <p class="text-xs">
                 <span class="text-good">Best:</span> {c.strengths} <span class="text-danger">Weak:</span> {c.weaknesses}
