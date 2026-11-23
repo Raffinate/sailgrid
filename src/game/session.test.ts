@@ -1,7 +1,40 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { defaultConfig } from "./map.ts"
+import type { GuestHandlers, HostHandlers } from "./multiplayer.ts"
 import type { Entrant } from "./race.ts"
-import { Session, type Snapshot } from "./session.ts"
+import { type Message, Session, type Snapshot } from "./session.ts"
+
+// An in-memory network in place of PeerJS: one host, any number of guests, messages delivered asynchronously
+// and copied, as over a data channel.
+const net = vi.hoisted(() => ({ host: null as HostHandlers | null, guests: new Map<string, GuestHandlers>(), next: 0 }))
+vi.mock("./multiplayer.ts", () => {
+  const later = (f: () => void) => setTimeout(f, 1)
+  const copy = (m: Message) => JSON.parse(JSON.stringify(m)) as Message
+  return {
+    host: async (h: HostHandlers) => {
+      net.host = h
+      later(() => h.onId("HOST"))
+      return {
+        broadcast: (m: Message) => net.guests.forEach((g) => later(() => g.onMessage(copy(m)))),
+        sendTo: (peer: string, m: Message) => later(() => net.guests.get(peer)?.onMessage(copy(m))),
+        close: () => (net.host = null),
+      }
+    },
+    join: async (_id: string, g: GuestHandlers) => {
+      const peer = `guest-${net.next++}`
+      net.guests.set(peer, g)
+      later(() => (net.host?.onJoin(peer), g.onOpen()))
+      return {
+        send: (m: Message) => later(() => net.host?.onMessage(peer, copy(m))),
+        close: () => {
+          net.guests.delete(peer)
+          later(() => net.host?.onLeave(peer))
+        },
+      }
+    },
+    inviteUrl: (id: string) => `?join=${id}`,
+  }
+})
 
 const until = async (get: () => boolean, ms = 5000) => {
   const t0 = Date.now()
@@ -54,5 +87,57 @@ describe("Session", () => {
     s.step()
     await until(() => snap.state!.turn === t + 1)
     s.stop()
+  })
+
+  it("lets online guests pick a name and boat in the lobby, and starts only once they're ready", async () => {
+    let host!: Snapshot
+    let guest!: Snapshot
+    const h = new Session((x) => (host = x))
+    const g = new Session((x) => (guest = x))
+    await h.hostLobby(cfg, [{ name: "Ana", color: "#e11d48", controller: "human", boat: "j-35" }])
+    await until(() => host.inviteUrl !== null)
+    await g.join("HOST", "You", "j-35")
+    await until(() => guest.mine.length === 1 && guest.entrants.length === 2)
+
+    // The guest sees the course and who's in.
+    expect(guest.config).toEqual(cfg)
+    expect(guest.entrants.map((e) => e.name)).toEqual(["Ana", "You"])
+    expect(guest.entrants[guest.mine[0]].ready).toBe(false)
+
+    // Not ready yet: the host can't start.
+    h.startHosted()
+    expect(host.phase).toBe("lobby")
+
+    g.setSailor("  Bo  ", "melges-24", false)
+    await until(() => host.entrants[1].name === "Bo")
+    expect(host.entrants[1]).toMatchObject({ boat: "melges-24", ready: false })
+    g.setSailor("Bo", "melges-24", true)
+    await until(() => guest.entrants[guest.mine[0]].ready === true)
+    expect(host.entrants[1].ready).toBe(true)
+
+    // A different race: the guest confirms again.
+    h.updateLobby({ ...cfg, windSpeed: 20 }, [{ name: "Ana", color: "#e11d48", controller: "human", boat: "j-35" }])
+    expect(host.entrants[1].ready).toBe(false)
+    await until(() => guest.config?.windSpeed === 20)
+    expect(guest.entrants[guest.mine[0]].ready).toBe(false)
+    expect(guest.status).toMatch(/changed the race/)
+    h.startHosted()
+    expect(host.phase).toBe("lobby")
+
+    g.setSailor("Bo", "melges-24", true)
+    await until(() => host.entrants[1].ready === true)
+    h.startHosted()
+    expect(host.phase).toBe("racing")
+    expect(host.state!.boats[1]).toMatchObject({ name: "Bo", boat: "melges-24", controller: "remote" })
+    expect(host.state!.boats[1]).not.toHaveProperty("ready")
+    await until(() => guest.phase === "racing")
+    expect(guest.active).toBe(1)
+
+    // Lobby changes are ignored once racing.
+    g.setSailor("Late", "j-109", true)
+    await new Promise((r) => setTimeout(r, 20))
+    expect(host.state!.boats[1].name).toBe("Bo")
+    g.stop()
+    h.stop()
   })
 })

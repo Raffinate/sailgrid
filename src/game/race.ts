@@ -16,6 +16,8 @@ export interface Entrant {
   boat: BoatClassId
   /** Remote players: the connection that steers this boat. */
   peer?: string
+  /** Online lobby: a remote player has settled on a name and boat and is ready to start. */
+  ready?: boolean
 }
 
 export interface Boat extends Entrant {

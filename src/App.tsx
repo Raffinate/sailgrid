@@ -18,7 +18,7 @@ import {
 import { ThemeToggle } from "./components/ThemeToggle.tsx"
 import { buttonClass, Kbd, Panel } from "./components/ui.tsx"
 import type { Plan } from "./game/boat.ts"
-import { DEFAULT_BOAT, FLEET } from "./game/fleet.ts"
+import { type BoatClassId, DEFAULT_BOAT, FLEET } from "./game/fleet.ts"
 import { generateMap, type RaceConfig, randomConfig } from "./game/map.ts"
 import { parseJoinId } from "./game/multiplayer.ts"
 import { previewPlan, raceTime, racing, standings } from "./game/race.ts"
@@ -87,7 +87,21 @@ export function App() {
       return null
     }
   })
-  const map = createMemo(() => (snap().phase === "racing" ? snap().map : snap().mode === "guest" && snap().config ? null : previewMap()))
+  // Guests in the lobby see the host's course. Keyed on the settings so the map isn't rebuilt on every lobby update.
+  const guestConfig = createMemo(() => {
+    const s = snap()
+    return s.mode === "guest" && s.phase === "lobby" && s.config ? JSON.stringify(s.config) : null
+  })
+  const guestMap = createMemo(() => {
+    const c = guestConfig()
+    if (!c) return null
+    try {
+      return generateMap(JSON.parse(c) as RaceConfig)
+    } catch {
+      return null
+    }
+  })
+  const map = createMemo(() => (snap().phase === "racing" ? snap().map : snap().mode === "guest" ? guestMap() : previewMap()))
   const state = () => snap().state
   const activeBoat = createMemo(() => {
     const s = snap()
@@ -134,6 +148,13 @@ export function App() {
     const me = players().find((p) => p.kind === "human")
     void session.join(id, me?.name ?? "Guest", me?.boat ?? DEFAULT_BOAT)
     track("race_joined")
+  }
+  // A guest's name and boat go to the host, and are remembered as this device's first sailor for next time.
+  const setSailor = (name: string, boat: BoatClassId, ready: boolean) => {
+    session.setSailor(name, boat, ready)
+    const ps = players()
+    const i = ps.findIndex((p) => p.kind === "human")
+    if (i >= 0 && name.trim()) setPlayers(ps.map((p, j) => (j === i ? { ...p, name: name.trim(), boat } : p)))
   }
 
   let reported = false
@@ -338,7 +359,9 @@ export function App() {
             <LobbyPanel
               host={snap().mode === "host"}
               inviteUrl={snap().inviteUrl}
+              config={snap().config}
               entrants={snap().entrants}
+              you={snap().mode === "guest" ? (snap().mine[0] ?? null) : null}
               status={snap().status}
               error={snap().error}
               onStart={() => {
@@ -346,6 +369,7 @@ export function App() {
                 track("race_started", { mode: "host", boats: snap().entrants.length })
               }}
               onLeave={() => session.stop()}
+              onSailor={setSailor}
             />
             <Show when={snap().mode === "host"}>
               <PlayersPanel players={players()} onChange={editPlayers} />

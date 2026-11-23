@@ -7,7 +7,7 @@ import { type CourseKind, describeConfig, type IslandDensity, type MapSize, type
 import { parseJoinId } from "../game/multiplayer.ts"
 import type { Difficulty, Entrant } from "../game/race.ts"
 import { randomSeed } from "../game/rng.ts"
-import { BOAT_COLORS, MAX_BOATS } from "../game/session.ts"
+import { BOAT_COLORS, MAX_BOATS, MAX_NAME, notReady } from "../game/session.ts"
 import { RangeField } from "./RangeField.tsx"
 import { buttonClass, Choice, Panel, Segmented } from "./ui.tsx"
 
@@ -351,23 +351,86 @@ export function StartPanel(props: {
             Join
           </Button>
         </div>
-        <p class="mt-1.5 text-xs text-muted-foreground">You'll sail under the first name in your sailors list.</p>
+        <p class="mt-1.5 text-xs text-muted-foreground">You'll pick your name and boat in the lobby.</p>
       </div>
     </Panel>
   )
 }
 
-/** Online lobby, for the host and for guests. */
+/** A guest's own entry in the lobby: name and boat, then ready. Ready locks them until changed again. */
+function GuestSailor(props: { me: Entrant; onChange: (name: string, boat: BoatClassId, ready: boolean) => void }) {
+  const [name, setName] = createSignal(props.me.name)
+  const [boat, setBoat] = createSignal<BoatClassId>(props.me.boat)
+  const ready = () => props.me.ready === true
+  return (
+    <div class="space-y-2 rounded-md border border-border p-3">
+      <div class="text-sm font-medium">Your boat</div>
+      <div class="flex items-center gap-2">
+        <span class="inline-block size-3 shrink-0 rounded-full" style={{ background: props.me.color || "var(--muted-foreground)" }} />
+        <Input
+          value={name()}
+          disabled={ready()}
+          aria-label="Your name"
+          maxlength={MAX_NAME}
+          onValueChange={(v) => {
+            setName(v)
+            props.onChange(v, boat(), false)
+          }}
+          class="h-8 min-w-0 flex-1 rounded-md border border-input bg-card px-2.5 text-sm shadow-xs outline-none focus-visible:ring-3 focus-visible:ring-ring/40 disabled:opacity-60"
+        />
+      </div>
+      <div class="pl-5">
+        <Choice<BoatClassId>
+          label="Your boat"
+          value={boat()}
+          options={BOATS}
+          disabled={ready()}
+          class="w-full"
+          onChange={(b) => {
+            setBoat(b)
+            props.onChange(name(), b, false)
+          }}
+        />
+      </div>
+      <div class="flex flex-wrap items-center gap-x-3 gap-y-1.5 pt-1">
+        <Button
+          class={ready() ? buttonClass.outline : buttonClass.primary}
+          onClick={() => props.onChange(name(), boat(), !ready())}
+          data-ph-capture-attribute-action={ready() ? "lobby-unready" : "lobby-ready"}
+        >
+          {ready() ? "Change name or boat" : "Ready"}
+        </Button>
+        <span class="text-xs text-muted-foreground" aria-live="polite">
+          {ready() ? "You're ready. Waiting for the host to start." : "Pick your name and boat, then tell the host you're ready."}
+        </span>
+      </div>
+    </div>
+  )
+}
+
+function lobbyRole(e: Entrant) {
+  if (e.controller === "ai") return `AI · ${e.difficulty}`
+  if (e.controller === "human") return "host's screen"
+  return e.ready ? "ready" : "choosing…"
+}
+
+/** Online lobby, for the host and for guests: the race, who's in, and (for guests) their own boat. */
 export function LobbyPanel(props: {
   host: boolean
   inviteUrl: string | null
+  config: RaceConfig | null
   entrants: Entrant[]
+  /** Guests: their own place in the entrants, once the host has taken them in. */
+  you: number | null
   status: string
   error: string | null
   onStart: () => void
   onLeave: () => void
+  onSailor: (name: string, boat: BoatClassId, ready: boolean) => void
 }) {
   const [copied, setCopied] = createSignal(false)
+  const me = () => (props.you === null ? undefined : props.entrants[props.you])
+  const waiting = () => notReady(props.entrants)
   return (
     <Panel title={props.host ? "Online race" : "Joining a race"} class="space-y-4">
       <Show when={props.host && props.inviteUrl}>
@@ -398,35 +461,65 @@ export function LobbyPanel(props: {
           </div>
         )}
       </Show>
-      <ul class="space-y-1.5">
-        <For each={props.entrants} keyed={false}>
-          {(e) => (
-            <li class="flex items-center gap-2 text-sm">
-              <span class="inline-block size-3 rounded-full" style={{ background: e().color || "var(--muted-foreground)" }} />
-              <span class="flex-1">{e().name}</span>
-              <span class="text-xs text-muted-foreground">
-                {boatClass(e().boat).name} ·{" "}
-                {e().controller === "remote" ? "online" : e().controller === "ai" ? `AI · ${e().difficulty}` : "host's screen"}
-              </span>
-            </li>
-          )}
-        </For>
-      </ul>
+      <Show when={!props.host && props.config}>
+        {(c) => (
+          <div>
+            <div class="mb-0.5 text-sm font-medium">The race</div>
+            <p class="text-sm">{describeConfig(c())}</p>
+            <p class="text-xs text-muted-foreground">The host sets the course; it's on the chart.</p>
+          </div>
+        )}
+      </Show>
+      <Show when={me()}>{(m) => <GuestSailor me={m()} onChange={props.onSailor} />}</Show>
+      <Show when={props.entrants.length}>
+        <div>
+          <div class="mb-1 text-sm font-medium">In the lobby</div>
+          <ul class="space-y-1.5">
+            <For each={props.entrants} keyed={false}>
+              {(e, i) => (
+                <li class="flex items-center gap-2 text-sm">
+                  <span class="inline-block size-3 shrink-0 rounded-full" style={{ background: e().color || "var(--muted-foreground)" }} />
+                  <span class="min-w-0 flex-1 truncate">
+                    {e().name}
+                    <Show when={i === props.you}>
+                      <span class="text-muted-foreground"> (you)</span>
+                    </Show>
+                  </span>
+                  <span class="shrink-0 text-xs text-muted-foreground">
+                    {boatClass(e().boat).name} ·{" "}
+                    <span class={e().controller === "remote" ? (e().ready ? "text-good" : "text-warn") : ""}>{lobbyRole(e())}</span>
+                  </span>
+                </li>
+              )}
+            </For>
+          </ul>
+        </div>
+      </Show>
       <Show when={props.status}>
         <p class="text-sm text-muted-foreground" aria-live="polite">
           {props.status}
         </p>
       </Show>
       <Show when={props.error}>{(e) => <p class="text-sm text-danger">{e()}</p>}</Show>
-      <div class="flex flex-wrap gap-2">
+      <div class="flex flex-wrap items-center gap-2">
         <Show when={props.host}>
-          <Button class={buttonClass.primary} onClick={() => props.onStart()} data-ph-capture-attribute-action="start-online">
+          <Button
+            class={buttonClass.primary}
+            disabled={waiting().length > 0}
+            onClick={() => props.onStart()}
+            data-ph-capture-attribute-action="start-online"
+          >
             Start race
           </Button>
         </Show>
         <Button class={buttonClass.ghost} onClick={() => props.onLeave()}>
           {props.host ? "Cancel" : "Leave"}
         </Button>
+        <Show when={props.host && waiting().length}>
+          <span class="text-xs text-muted-foreground" aria-live="polite">
+            Waiting for {waiting().map((e) => e.name).join(", ")} to be ready.
+          </span>
+        </Show>
       </div>
     </Panel>
   )

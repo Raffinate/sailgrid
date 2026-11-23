@@ -19,6 +19,8 @@ export type Phase = "setup" | "lobby" | "racing"
 
 export type Message =
   | { type: "hello"; name: string; boat: BoatClassId }
+  /** A guest in the lobby changes their name or boat, or says they're ready (or not, to change again). */
+  | { type: "sailor"; name: string; boat: BoatClassId; ready: boolean }
   | { type: "lobby"; config: RaceConfig; entrants: Entrant[]; you: number }
   | { type: "race"; config: RaceConfig; state: RaceState; you: number; planned: number[] }
   | { type: "plan"; turn: number; plan: Plan }
@@ -50,6 +52,12 @@ export interface Snapshot {
 
 export const BOAT_COLORS = ["#e11d48", "#2563eb", "#16a34a", "#d97706", "#7c3aed", "#0891b2", "#db2777", "#57534e"]
 export const MAX_BOATS = BOAT_COLORS.length
+export const MAX_NAME = 20
+
+const cleanName = (name: string) => name.trim().slice(0, MAX_NAME) || "Guest"
+
+/** Online sailors who haven't said they're ready yet; the host can start once there are none. */
+export const notReady = (entrants: Entrant[]) => entrants.filter((e) => e.controller === "remote" && !e.ready)
 
 export const IDLE_SNAPSHOT: Snapshot = {
   mode: "local",
@@ -119,7 +127,8 @@ export class Session {
     this.begin("local", config, entrants)
   }
 
-  private begin(mode: Mode, config: RaceConfig, entrants: Entrant[]) {
+  private begin(mode: Mode, config: RaceConfig, lobby: Entrant[]) {
+    const entrants = lobby.map(({ ready: _, ...e }) => e)
     const map = generateMap(config)
     const state = newRace(map, entrants)
     this.emit({
@@ -250,7 +259,10 @@ export class Session {
   /** Host: change the course or this device's players while still in the lobby. */
   updateLobby(config: RaceConfig, entrants: Entrant[]) {
     if (this.snap.mode !== "host" || this.snap.phase !== "lobby") return
-    this.setEntrants(config, [...entrants, ...this.remoteEntrants()])
+    // A different race may call for a different boat: everyone online confirms again.
+    const changed = JSON.stringify(config) !== JSON.stringify(this.snap.config)
+    const remote = this.remoteEntrants().map((e) => (changed ? { ...e, ready: false } : e))
+    this.setEntrants(config, [...entrants, ...remote])
   }
 
   private setEntrants(config: RaceConfig, entrants: Entrant[]) {
@@ -270,8 +282,19 @@ export class Session {
     if (msg.type === "hello") {
       if (s.phase !== "lobby" || !s.config) return
       if (s.entrants.length >= MAX_BOATS) return
-      const name = msg.name.trim().slice(0, 20) || "Guest"
-      this.setEntrants(s.config, [...s.entrants, { name, color: "", controller: "remote", peer, boat: boatClass(msg.boat).id }])
+      const sailor: Entrant = { name: cleanName(msg.name), color: "", controller: "remote", peer, boat: boatClass(msg.boat).id, ready: false }
+      // The lobby list (with who's still choosing) says the rest.
+      if (s.status) this.emit({ status: "" })
+      this.setEntrants(s.config, [...s.entrants, sailor])
+      return
+    }
+    if (msg.type === "sailor") {
+      if (s.phase !== "lobby" || !s.config || !this.peerBoat.has(peer)) return
+      const patch = { name: cleanName(msg.name), boat: boatClass(msg.boat).id, ready: msg.ready === true }
+      this.setEntrants(
+        s.config,
+        s.entrants.map((e) => (e.peer === peer ? { ...e, ...patch } : e)),
+      )
       return
     }
     if (msg.type === "plan") {
@@ -304,10 +327,10 @@ export class Session {
     }
   }
 
-  /** Host: go. */
+  /** Host: go, once every online sailor is ready. */
   startHosted() {
     const s = this.snap
-    if (s.mode !== "host" || s.phase !== "lobby" || !s.config) return
+    if (s.mode !== "host" || s.phase !== "lobby" || !s.config || notReady(s.entrants).length) return
     this.begin("host", s.config, s.entrants)
     this.emit({ status: "" })
   }
@@ -329,7 +352,7 @@ export class Session {
       const link = await join(hostId, {
         onOpen: () => {
           this.guestLink?.send({ type: "hello", name, boat })
-          this.emit({ status: "Connected. Waiting for the host to start." })
+          this.emit({ status: "" })
         },
         onMessage: (msg) => this.guestReceive(msg),
         onClose: () => this.emit({ error: "The host left the race.", active: null }),
@@ -343,10 +366,26 @@ export class Session {
     }
   }
 
+  /** Guest, in the lobby: this device's name and boat, and whether it's ready to start. */
+  setSailor(name: string, boat: BoatClassId, ready: boolean) {
+    const s = this.snap
+    if (s.mode !== "guest" || s.phase !== "lobby" || !s.mine.length) return
+    this.guestLink?.send({ type: "sailor", name, boat, ready })
+    if (s.status) this.emit({ status: "" })
+  }
+
   private guestReceive(msg: Message) {
     const s = this.snap
     if (msg.type === "lobby") {
-      this.emit({ config: msg.config, entrants: msg.entrants, mine: [msg.you] })
+      const was = s.mine.length ? s.entrants[s.mine[0]] : undefined
+      const now = msg.entrants[msg.you]
+      const reset = was?.ready && !now?.ready && JSON.stringify(s.config) !== JSON.stringify(msg.config)
+      this.emit({
+        config: msg.config,
+        entrants: msg.entrants,
+        mine: [msg.you],
+        ...(reset ? { status: "The host changed the race. Check your boat, then confirm again." } : {}),
+      })
       return
     }
     if (msg.type !== "race") return
