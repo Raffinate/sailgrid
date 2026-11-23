@@ -329,9 +329,9 @@ export function App() {
         <aside class="space-y-4">
           <Show when={snap().phase === "setup"}>
             <CoursePanel config={config()} onChange={editConfig} />
+            <FleetPanel windSpeed={config().windSpeed} />
             <PlayersPanel players={players()} onChange={editPlayers} />
             <StartPanel defaultJoin="" onStart={start} onHost={hostOnline} onJoin={joinOnline} />
-            <FleetPanel windSpeed={config().windSpeed} />
           </Show>
 
           <Show when={snap().phase === "lobby"}>

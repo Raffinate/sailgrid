@@ -56,6 +56,12 @@
   --wind-arrow: oklch(0.45 0.1 240 / 0.55);
   --course: oklch(0.45 0.02 260 / 0.45);
   --line: oklch(0.35 0.02 260);
+
+  /* Boat classes in charts: categorical slots 1–4, validated for the card surface in each mode. */
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --series-4: #eda100;
 }
 
 /* Set on <html> before first paint by index.html, then by the theme toggle. */
@@ -88,6 +94,11 @@
   --wind-arrow: oklch(0.85 0.06 230 / 0.45);
   --course: oklch(0.85 0.02 260 / 0.4);
   --line: oklch(0.9 0.02 260);
+
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --series-4: #c98500;
 }
 
 body {
