@@ -217,24 +217,24 @@ export function PlayersPanel(props: { players: SetupPlayer[]; disabled?: boolean
     <Panel title="Sailors" class="space-y-3">
       <p class="-mt-2 text-xs text-muted-foreground">Name, who sails it, and which boat.</p>
       <ul class="space-y-2.5">
-        <For each={props.players}>
+        <For each={props.players} keyed={false}>
           {(p, i) => (
             <li class="space-y-1.5 border-t border-border pt-2.5 first:border-t-0 first:pt-0">
               <div class="flex items-center gap-2">
-                <span class="inline-block size-3 shrink-0 rounded-full" style={{ background: BOAT_COLORS[i() % BOAT_COLORS.length] }} />
+                <span class="inline-block size-3 shrink-0 rounded-full" style={{ background: BOAT_COLORS[i % BOAT_COLORS.length] }} />
                 <Input
-                  value={p.name}
+                  value={p().name}
                   disabled={props.disabled}
                   aria-label="Name"
                   maxlength={20}
-                  onChange={(e: Event) => update(i(), { name: (e.currentTarget as HTMLInputElement).value })}
+                  onValueChange={(name) => update(i, { name })}
                   class="h-8 min-w-0 flex-1 rounded-md border border-input bg-card px-2.5 text-sm shadow-xs outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
                 />
                 <button
                   type="button"
-                  aria-label={`Remove ${p.name}`}
+                  aria-label={`Remove ${p().name}`}
                   disabled={props.disabled || props.players.length <= 1}
-                  onClick={() => props.onChange(props.players.filter((_, j) => j !== i()))}
+                  onClick={() => props.onChange(props.players.filter((_, j) => j !== i))}
                   class="rounded-md p-1 text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/40 disabled:opacity-40"
                 >
                   <svg viewBox="0 0 24 24" class="size-4" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
@@ -246,19 +246,19 @@ export function PlayersPanel(props: { players: SetupPlayer[]; disabled?: boolean
               <div class="grid grid-cols-2 gap-2 pl-5">
                 <Choice<PlayerKind>
                   label="Who sails it"
-                  value={p.kind}
+                  value={p().kind}
                   options={KINDS}
                   disabled={props.disabled}
                   class="w-full"
-                  onChange={(kind) => update(i(), { kind })}
+                  onChange={(kind) => update(i, { kind })}
                 />
                 <Choice<BoatClassId>
                   label="Boat"
-                  value={FLEET.some((c) => c.id === p.boat) ? p.boat : DEFAULT_BOAT}
+                  value={FLEET.some((c) => c.id === p().boat) ? p().boat : DEFAULT_BOAT}
                   options={BOATS}
                   disabled={props.disabled}
                   class="w-full"
-                  onChange={(boat) => update(i(), { boat })}
+                  onChange={(boat) => update(i, { boat })}
                 />
               </div>
             </li>
