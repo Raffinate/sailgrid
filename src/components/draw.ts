@@ -2,7 +2,7 @@ import { boomAngle, type Move } from "../game/boat.ts"
 import { dirVec, lerp, type Pt, scale, sub } from "../game/geom.ts"
 import type { GameMap, Gate } from "../game/map.ts"
 import type { Boat } from "../game/race.ts"
-import type { WindField } from "../game/wind.ts"
+import { frontLine, type WindField } from "../game/wind.ts"
 import { coastline } from "./coastline.ts"
 
 /** Canvas drawing of the chart: grid paper, islands, wind, the course, tracks and boats. */
@@ -18,6 +18,7 @@ export interface Palette {
   windArrow: string
   course: string
   line: string
+  front: string
   mark: string
   good: string
   danger: string
@@ -39,6 +40,7 @@ export function readPalette(): Palette {
     windArrow: v("wind-arrow"),
     course: v("course"),
     line: v("line"),
+    front: v("front"),
     mark: v("mark"),
     good: v("good"),
     danger: v("danger"),
@@ -304,6 +306,39 @@ export function drawWind(ctx: CanvasRenderingContext2D, m: GameMap, v: Viewport,
       ctx.closePath()
       ctx.fill()
     }
+}
+
+/** The front, as on a weather map: a line with teeth pointing the way it's moving. Clipped to the chart. */
+export function drawFront(ctx: CanvasRenderingContext2D, m: GameMap, v: Viewport, c: Palette, turn: number) {
+  const line = frontLine(m, turn)
+  if (!line) return
+  const a = toPx(v, line.a)
+  const b = toPx(v, line.b)
+  ctx.save()
+  ctx.beginPath()
+  ctx.rect(v.pad, v.pad, (m.width - 1) * v.cell, (m.height - 1) * v.cell)
+  ctx.clip()
+  ctx.strokeStyle = c.front
+  ctx.fillStyle = c.front
+  ctx.lineWidth = 2.5
+  ctx.beginPath()
+  ctx.moveTo(a.x, a.y)
+  ctx.lineTo(b.x, b.y)
+  ctx.stroke()
+  const along = scale(sub(b, a), 1 / Math.hypot(b.x - a.x, b.y - a.y))
+  const ahead = dirVec(line.toward)
+  const total = Math.hypot(b.x - a.x, b.y - a.y)
+  const size = 7
+  for (let d = 14; d < total; d += 34) {
+    const p = { x: a.x + along.x * d, y: a.y + along.y * d }
+    ctx.beginPath()
+    ctx.moveTo(p.x - along.x * size, p.y - along.y * size)
+    ctx.lineTo(p.x + along.x * size, p.y + along.y * size)
+    ctx.lineTo(p.x + ahead.x * size * 1.3, p.y + ahead.y * size * 1.3)
+    ctx.closePath()
+    ctx.fill()
+  }
+  ctx.restore()
 }
 
 // ---- Boats --------------------------------------------------------------------------------------

@@ -13,6 +13,12 @@ import { CELLS_PER_KNOT } from "./units.ts"
  * - Puffs and lulls are carried downwind at about 70% of the wind speed. They're stretched along the
  *   wind, they grow and fade over a few minutes, and puffs veer while lulls back (northern hemisphere).
  * - A slow, large-scale bias makes one part of the course a little windier or more lifted than another.
+ * - Eddies: small whirls of air, a few hundred metres across, that form, drift downwind with the breeze
+ *   for several minutes, and fade. On one side of an eddy the wind is stronger and on the other lighter,
+ *   and it swings in direction round it.
+ * - A front (when the race has one): a line that sweeps across the course partway through. Ahead of it
+ *   the wind backs and eases a little; on the line there's a gusty squall; behind it the wind has veered
+ *   a long way and is stronger and gustier.
  * - Islands cast wind shadow downwind (longer behind higher land, and gusty inside), the wind speeds
  *   up between islands and round headlands, and wind blowing onto a shore bends along it.
  */
@@ -30,6 +36,33 @@ export interface WindField {
   /** The breeze at the middle of the map this turn, before puffs and islands. */
   baseFrom: number
   baseSpeed: number
+}
+
+/** A small whirl of air drifting with the breeze. */
+export interface Eddy {
+  /** Where its centre is this turn. */
+  x: number
+  y: number
+  /** Cells to where it turns fastest. */
+  radius: number
+  /** 1: turning clockwise on the chart; −1: anticlockwise. */
+  spin: 1 | -1
+  /** How fast the air turns round it at `radius`, knots (already faded in or out by its age). */
+  strength: number
+}
+
+/** A front: a straight line moving across the map, with different wind behind it. */
+export interface Front {
+  /** Turn at which the line crosses the middle of the map (fractional). */
+  arrival: number
+  /** Compass direction the line moves toward. */
+  toward: number
+  /** How fast it moves, cells per turn. */
+  speed: number
+  /** How far the wind veers behind it, degrees. */
+  shift: number
+  /** Wind strength behind it, as a share of the wind ahead. */
+  gain: number
 }
 
 export interface Wind {
@@ -80,6 +113,154 @@ function params(m: GameMap): Params {
 
 const TAU = 2 * Math.PI
 
+/** Cells per turn the air (and the puffs, shifts and eddies in it) travels. */
+const carryOf = (m: GameMap) => Math.max(1, CARRY * m.windSpeed * CELLS_PER_KNOT)
+
+const smoothstep = (t: number) => {
+  const u = clamp(t, 0, 1)
+  return u * u * (3 - 2 * u)
+}
+
+// ---- Front -------------------------------------------------------------------------------------
+
+/** Width of the change across the front line, cells (a couple of hundred metres). */
+const FRONT_WIDTH = 6
+
+const frontCache = new WeakMap<GameMap, Front | null>()
+
+/**
+ * The race's front, if it has one. It arrives partway through the race: when depends on a rough guess at
+ * how long the course takes to sail, so it lands mid-race on a short course and a long one alike. Like a
+ * cold front in the northern hemisphere, the wind veers behind it, 35–70°, and is a fifth to half stronger.
+ */
+export function frontOf(m: GameMap): Front | null {
+  if (m.config.weather !== "front") return null
+  const hit = frontCache.get(m)
+  if (hit !== undefined) return hit
+  const r = mulberry32(hash(m.config.seed, 31))
+  const shift = 35 + r() * 35
+  const gain = 1.2 + r() * 0.3
+  // It comes from roughly where the new wind does, and moves about as fast as that wind.
+  const toward = norm(m.windFrom + shift + 180 + (r() - 0.5) * 30)
+  const speed = Math.max(4, (0.8 + r() * 0.4) * m.windSpeed * gain * CELLS_PER_KNOT)
+  // How long the race might take: the course, with some extra for beating, at a typical boat speed.
+  const center = { x: (m.width - 1) / 2, y: (m.height - 1) / 2 }
+  const start = { x: (m.startLine[0].x + m.startLine[1].x) / 2, y: (m.startLine[0].y + m.startLine[1].y) / 2 }
+  const legs = [start, ...m.gates.filter((g) => g.mark).map((g) => g.mark!), start]
+  let length = 0
+  for (let i = 1; i < legs.length; i++) length += Math.hypot(legs[i].x - legs[i - 1].x, legs[i].y - legs[i - 1].y)
+  const boatSpeed = Math.min(7, 0.55 * m.windSpeed) * CELLS_PER_KNOT
+  const raceTurns = (1.3 * length) / boatSpeed
+  // Never already on the map at the start: it's seen coming.
+  const reach = Math.hypot(center.x, center.y)
+  const arrival = Math.max(reach / speed + 3, (0.3 + r() * 0.35) * raceTurns)
+  const front = { arrival, toward, speed, shift, gain }
+  frontCache.set(m, front)
+  return front
+}
+
+/** How far behind the front line a point is this turn, cells: negative ahead of it, positive once it has passed. */
+export function behindFront(m: GameMap, f: Front, turn: number, p: Pt): number {
+  const n = dirVec(f.toward)
+  const center = { x: (m.width - 1) / 2, y: (m.height - 1) / 2 }
+  return f.speed * (turn - f.arrival) - ((p.x - center.x) * n.x + (p.y - center.y) * n.y)
+}
+
+/** The front line this turn, as a long segment through the map (for drawing), or null with no front. */
+export function frontLine(m: GameMap, turn: number): { a: Pt; b: Pt; toward: number } | null {
+  const f = frontOf(m)
+  if (!f) return null
+  const n = dirVec(f.toward)
+  const along = { x: -n.y, y: n.x }
+  const d = f.speed * (turn - f.arrival)
+  const c = { x: (m.width - 1) / 2 + n.x * d, y: (m.height - 1) / 2 + n.y * d }
+  const L = m.width + m.height
+  return { a: { x: c.x - along.x * L, y: c.y - along.y * L }, b: { x: c.x + along.x * L, y: c.y + along.y * L }, toward: f.toward }
+}
+
+export type FrontState = { state: "coming"; turns: number; from: number } | { state: "passing"; from: number } | { state: "passed" }
+
+/** Where the front is relative to the map: still to come (and in how many turns it reaches it), crossing it, or gone. */
+export function frontState(m: GameMap, turn: number): FrontState | null {
+  const f = frontOf(m)
+  if (!f) return null
+  const corners = [
+    { x: 0, y: 0 },
+    { x: m.width - 1, y: 0 },
+    { x: 0, y: m.height - 1 },
+    { x: m.width - 1, y: m.height - 1 },
+  ].map((p) => behindFront(m, f, turn, p))
+  const from = norm(f.toward + 180)
+  const first = Math.max(...corners)
+  const last = Math.min(...corners)
+  if (first < 0) return { state: "coming", turns: Math.max(1, Math.ceil(-first / f.speed)), from }
+  if (last < FRONT_WIDTH) return { state: "passing", from }
+  return { state: "passed" }
+}
+
+// ---- Eddies ------------------------------------------------------------------------------------
+
+const EDDY_MAX_LIFE = 14
+
+/**
+ * The eddies on the map this turn. Each is born at a random place and time, drifts downwind with the air
+ * (along the wind it was born in, so behind a front they drift the new way), turns up and dies away over
+ * 6–14 turns. Shifty days have more of them, and stronger.
+ */
+export function eddiesAt(m: GameMap, turn: number): Eddy[] {
+  const shifty = m.config.shifts === "shifty"
+  const rate = ((m.width * m.height) / 21000) * (shifty ? 1.3 : 1)
+  const carry = carryOf(m)
+  const front = frontOf(m)
+  const out: Eddy[] = []
+  for (let k = Math.floor(turn - EDDY_MAX_LIFE); k <= turn; k++) {
+    const r = mulberry32(hash(m.config.seed, 21, k + 1000))
+    const count = Math.floor(rate + r())
+    for (let j = 0; j < count; j++) {
+      const birth = k + r()
+      const life = 6 + r() * (EDDY_MAX_LIFE - 6)
+      const x0 = r() * (m.width - 1)
+      const y0 = r() * (m.height - 1)
+      const radius = 4 + r() * 6
+      const spin: 1 | -1 = r() < 0.5 ? 1 : -1
+      const strength = m.windSpeed * (shifty ? 0.18 + r() * 0.14 : 0.12 + r() * 0.1)
+      const age = turn - birth
+      if (age < 0 || age > life) continue
+      const veer = front ? front.shift * smoothstep(0.5 + behindFront(m, front, birth, { x: x0, y: y0 }) / FRONT_WIDTH) : 0
+      const down = dirVec(m.windFrom + veer + 180)
+      out.push({
+        x: x0 + down.x * carry * age,
+        y: y0 + down.y * carry * age,
+        radius,
+        spin,
+        strength: strength * Math.sin((Math.PI * age) / life),
+      })
+    }
+  }
+  return out
+}
+
+/** The air's own motion round the eddies at a point, knots, as a vector on the chart (x east, y south). */
+function eddyFlow(eddies: Eddy[], x: number, y: number): Pt {
+  let fx = 0
+  let fy = 0
+  for (const e of eddies) {
+    const dx = x - e.x
+    const dy = y - e.y
+    const r = Math.hypot(dx, dy)
+    if (r < 1e-6 || r > 3 * e.radius) continue
+    // Turning like a solid near the middle, fastest at `radius`, dying away outside it.
+    const u = r / e.radius
+    const v = e.strength * u * Math.exp(0.5 * (1 - u * u))
+    // (−dy, dx) turns clockwise on the chart, where y points south.
+    fx += (e.spin * -dy * v) / r
+    fy += (e.spin * dx * v) / r
+  }
+  return { x: fx, y: fy }
+}
+
+const norm = (a: number) => ((a % 360) + 360) % 360
+
 function compute(m: GameMap, turn: number): WindField {
   const p = params(m)
   const { width, height } = m
@@ -93,8 +274,10 @@ function compute(m: GameMap, turn: number): WindField {
   const up = dirVec(m.windFrom)
   const across = { x: -up.y, y: up.x }
   const center = { x: (width - 1) / 2, y: (height - 1) / 2 }
-  // How far the air (and the puffs and shifts in it) travels in a turn, cells.
-  const carry = Math.max(1, CARRY * m.windSpeed * CELLS_PER_KNOT)
+  const carry = carryOf(m)
+  const front = frontOf(m)
+  const sSquall = hash(seed, 10)
+  const eddies = eddiesAt(m, turn)
 
   const baseFromAt = (t: number) =>
     m.windFrom +
@@ -118,6 +301,18 @@ function compute(m: GameMap, turn: number): WindField {
     return h[i] * (1 - fx) * (1 - fy) + h[i + 1] * fx * (1 - fy) + h[i + width] * (1 - fx) * fy + h[i + width + 1] * fx * fy
   }
 
+  // The breeze in the middle of the map, front included: what puffs and lulls are measured against.
+  const baseAtCenter = () => {
+    let from = baseFromAt(turn)
+    let speed = baseSpeedAt(turn)
+    if (front) {
+      const behind = smoothstep(0.5 + behindFront(m, front, turn, center) / FRONT_WIDTH)
+      from += front.shift * behind
+      speed *= 1 + (front.gain - 1) * behind
+    }
+    return { baseFrom: norm(from), baseSpeed: speed }
+  }
+
   const from = new Float32Array(width * height)
   const speed = new Float32Array(width * height)
   const vx = new Float32Array(width * height)
@@ -131,18 +326,42 @@ function compute(m: GameMap, turn: number): WindField {
       let f = baseFromAt(tl)
       let w = baseSpeedAt(tl)
 
+      // The front: backing and easing ahead of the line, a squall on it, the new wind behind it.
+      let gusty = 1
+      if (front) {
+        const d = behindFront(m, front, turn, { x, y })
+        const behind = smoothstep(0.5 + d / FRONT_WIDTH)
+        const ahead = d < 0 ? Math.exp(d / 12) : 0
+        const squall = Math.exp(-((d - 3) ** 2) / 18)
+        f += front.shift * behind - 6 * ahead + 14 * squall * fbm3(sSquall, x / 4, y / 4, turn / 2, 1)
+        w *= (1 + (front.gain - 1) * behind) * (1 - 0.15 * ahead) * (1 + 0.35 * squall)
+        gusty = 1 + 0.5 * behind
+      }
+
       // Puffs: a pattern moving downwind with the air, stretched along the wind, slowly changing.
       const qx = x + up.x * carry * turn
       const qy = y + up.y * carry * turn
       const a = (qx * up.x + qy * up.y) / 18
       const c = (qx * across.x + qy * across.y) / 10
-      const g = clamp(p.puff * 1.8 * fbm3(sPuff, a, c, turn / 5, 2), -0.6, 0.6)
+      const g = clamp(p.puff * 1.8 * gusty * fbm3(sPuff, a, c, turn / 5, 2), -0.6, 0.6)
       w *= 1 + g
       f += p.veer * g + p.puffVeerNoise * 1.6 * fbm3(sPuffDir, a * 1.3, c * 1.3, turn / 4, 1)
 
       // Geography: a slow, fixed bias across the course.
       w *= 1 + p.biasSpeed * valueNoise(sBias, x / 55, y / 55)
       f += p.biasDir * valueNoise(sBias + 1, x / 60, y / 60)
+
+      // Eddies: the air turning round each one adds to the wind on one side and takes from it on the other.
+      if (eddies.length) {
+        const e = eddyFlow(eddies, x, y)
+        if (e.x || e.y) {
+          const to = dirVec(f + 180)
+          const vx = to.x * w + e.x
+          const vy = to.y * w + e.y
+          w = Math.hypot(vx, vy)
+          f = bearing({ x: vx, y: vy }, { x: 0, y: 0 })
+        }
+      }
 
       if (islands) {
         const u = dirVec(f)
@@ -206,8 +425,7 @@ function compute(m: GameMap, turn: number): WindField {
     speed,
     vx,
     vy,
-    baseFrom: ((baseFromAt(turn) % 360) + 360) % 360,
-    baseSpeed: baseSpeedAt(turn),
+    ...baseAtCenter(),
   }
 }
 

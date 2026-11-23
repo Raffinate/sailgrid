@@ -5,6 +5,8 @@ export type MapSize = "small" | "medium" | "large"
 export type IslandDensity = "none" | "few" | "many"
 export type CourseKind = "windward-leeward" | "triangle" | "islands"
 export type Shiftiness = "steady" | "shifty"
+/** Settled weather, or a front that sweeps across the course partway through the race. */
+export type Weather = "settled" | "front"
 
 export interface RaceConfig {
   seed: number
@@ -16,6 +18,7 @@ export interface RaceConfig {
   /** Mean true wind speed, knots. */
   windSpeed: number
   shifts: Shiftiness
+  weather: Weather
 }
 
 export const defaultConfig = (seed: number): RaceConfig => ({
@@ -26,6 +29,7 @@ export const defaultConfig = (seed: number): RaceConfig => ({
   laps: 2,
   windSpeed: 12,
   shifts: "shifty",
+  weather: "settled",
 })
 
 /** Pick from weighted options. */
@@ -78,6 +82,7 @@ export function randomConfig(rnd: () => number = Math.random): RaceConfig {
     ),
     windSpeed: 5 + Math.floor(rnd() * 18),
     shifts: rnd() < 0.4 ? "steady" : "shifty",
+    weather: rnd() < 0.25 ? "front" : "settled",
   }
 }
 
@@ -91,7 +96,7 @@ const COURSE_LABEL: Record<CourseKind, string> = {
 export function describeConfig(c: RaceConfig): string {
   return [
     COURSE_LABEL[c.course] + (c.course === "islands" ? "" : ` · ${c.laps} ${c.laps === 1 ? "lap" : "laps"}`),
-    `${c.windSpeed} kn, ${c.shifts}`,
+    `${c.windSpeed} kn, ${c.shifts}` + (c.weather === "front" ? ", front passing" : ""),
     c.islands === "none" ? "open water" : `${c.islands} islands`,
     `${c.size} map`,
   ].join(" · ")

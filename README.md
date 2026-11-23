@@ -44,8 +44,17 @@ that suits the day's wind and course, and then the best route round it.
   - puffs and lulls carried downwind at about 70% of the wind speed, stretched along the wind and changing
     over a few minutes, with puffs veering and lulls backing (northern hemisphere);
   - a slow, large-scale bias that favours one part of the course;
+  - eddies, a few hundred metres across, that drift downwind with the air for 6–14 turns and fade; the air
+    turns round each one, so the wind is stronger on one side, lighter on the other, and swings in direction;
   - wind shadow behind islands (longer behind higher land, and gusty), wind speeding up between islands and
-    round headlands, and wind bending along a shore it blows onto.
+    round headlands, and wind bending along a shore it blows onto;
+  - optionally a front (the **Weather** setting): a line that sweeps across the course partway through the
+    race, timed from a rough estimate of the race's length. Ahead of it the wind backs and eases, on the line
+    there's a squall, and behind it the wind has veered 35–70° and is 20–50% stronger and gustier. It's drawn
+    on the chart like a front on a weather map.
+
+  None of this is a fluid simulation: the wind at each intersection is computed fresh each turn from the seed
+  and the turn number, so the motion comes from that recipe changing smoothly with time.
 - **Maps.** Generated from a seed (`src/game/map.ts`): islands from fractal noise, and one of three
   courses: windward–leeward (beats and runs, 1–3 laps), a triangle (a beat and two reaches, 1–3 laps), or
   a loop round the islands with 3–4 marks. The generator clears water around every mark and the start

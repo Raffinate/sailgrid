@@ -7,7 +7,7 @@ import { defaultConfig, describeConfig, type GameMap, generateMap, isWater, MAP_
 import { mulberry32 } from "./rng.ts"
 import { crossGates, type Entrant, newRace, type RaceState, resolveTurn, rightOfWay, standings } from "./race.ts"
 import { BOAT_LENGTH_METERS, CELL_METERS, CELLS_PER_KNOT } from "./units.ts"
-import { CARRY, windAt, windField } from "./wind.ts"
+import { CARRY, eddiesAt, frontOf, frontState, windAt, windField } from "./wind.ts"
 
 const first = boatClass("j-35")
 const polar = first.polar
@@ -246,6 +246,84 @@ describe("maps", () => {
   })
 })
 
+describe("eddies", () => {
+  const m = generateMap({ ...defaultConfig(41), islands: "none", shifts: "shifty" })
+
+  it("drift downwind with the air", () => {
+    const now = eddiesAt(m, 20)
+    const next = eddiesAt(m, 21)
+    expect(now.length).toBeGreaterThan(0)
+    const carry = CARRY * m.windSpeed * CELLS_PER_KNOT
+    const down = dirVec(m.windFrom + 180)
+    // The same eddy a turn later: same size and spin, one turn's drift further downwind.
+    const moved = now.filter((e) =>
+      next.some(
+        (n) => n.radius === e.radius && n.spin === e.spin && Math.hypot(n.x - (e.x + down.x * carry), n.y - (e.y + down.y * carry)) < 1e-6,
+      ),
+    )
+    expect(moved.length).toBeGreaterThan(0)
+  })
+
+  it("turn the wind round them, the way they spin", () => {
+    let checked = 0
+    for (const turn of [20, 30, 40, 50]) {
+      const field = windField(m, turn)
+      const e = eddiesAt(m, turn)
+        .filter((e) => e.strength > 2 && e.x > 12 && e.y > 12 && e.x < m.width - 12 && e.y < m.height - 12)
+        .sort((a, b) => b.strength - a.strength)[0]
+      if (!e) continue
+      // Circulation: the wind's flow summed round a circle at the eddy's radius.
+      const n = 48
+      let circ = 0
+      for (let k = 0; k < n; k++) {
+        const th = (2 * Math.PI * k) / n
+        const p = { x: e.x + e.radius * Math.cos(th), y: e.y + e.radius * Math.sin(th) }
+        const w = windAt(field, p)
+        const flow = dirVec(w.from + 180)
+        circ += (flow.x * -Math.sin(th) + flow.y * Math.cos(th)) * w.speed * ((2 * Math.PI * e.radius) / n)
+      }
+      const expected = 2 * Math.PI * e.radius * e.strength
+      expect(Math.sign(circ)).toBe(e.spin)
+      expect(Math.abs(circ)).toBeGreaterThan(expected * 0.5)
+      checked++
+    }
+    expect(checked).toBeGreaterThan(1)
+  })
+})
+
+describe("front", () => {
+  const settled = generateMap({ ...defaultConfig(52), islands: "none", shifts: "steady" })
+  const m = generateMap({ ...settled.config, weather: "front" })
+  const f = frontOf(m)!
+  const mean = (turn: number, g: (a: number, b: number) => number, pick: "from" | "speed") => {
+    const a = windField(m, turn)[pick]
+    const b = windField(settled, turn)[pick]
+    let sum = 0
+    for (let i = 0; i < a.length; i++) sum += g(a[i], b[i])
+    return sum / a.length
+  }
+
+  it("arrives partway through the race, seen coming", () => {
+    expect(frontOf(settled)).toBeNull()
+    expect(f.shift).toBeGreaterThanOrEqual(35)
+    expect(f.shift).toBeLessThanOrEqual(70)
+    expect(frontState(m, 0)).toMatchObject({ state: "coming" })
+    expect(frontState(m, f.arrival)).toMatchObject({ state: "passing" })
+    expect(frontState(m, f.arrival + (m.width + m.height) / f.speed)).toMatchObject({ state: "passed" })
+  })
+
+  it("leaves the wind as it was ahead of it, and veered and stronger behind it", () => {
+    const early = 1
+    expect(Math.abs(mean(early, angleDiff, "from"))).toBeLessThan(3)
+    expect(mean(early, (a, b) => a / b, "speed")).toBeCloseTo(1, 1)
+    const late = Math.ceil(f.arrival + (m.width + m.height) / f.speed) + 2
+    expect(mean(late, angleDiff, "from")).toBeGreaterThan(f.shift - 8)
+    expect(mean(late, angleDiff, "from")).toBeLessThan(f.shift + 8)
+    expect(mean(late, (a, b) => a / b, "speed")).toBeGreaterThan(f.gain - 0.15)
+    expect(windField(m, late).baseFrom).toBeCloseTo(((windField(settled, late).baseFrom + f.shift) % 360), -1)
+  })
+})
+
 describe("course progress", () => {
   const m: GameMap = generateMap({ ...defaultConfig(5), islands: "none", laps: 1 })
   it("counts a windward mark only when rounded to port", () => {
@@ -280,6 +358,18 @@ describe("AI race", () => {
     for (const b of state.boats) expect(b.finish, `${b.name} after ${state.turn} turns, next ${b.next}/${map.gates.length}`).not.toBeNull()
     expect(state.turn).toBeLessThan(150)
     expect(standings(state)[0].finish).not.toBeNull()
+  }, 60_000)
+
+  it("finishes a race when a front comes through", () => {
+    const cfg: RaceConfig = { ...defaultConfig(13), laps: 1, weather: "front" }
+    const { state, map } = runRace(cfg, [
+      { name: "Hard", color: "#000", controller: "ai", difficulty: "hard", boat: "j-109" },
+      { name: "Easy", color: "#222", controller: "ai", difficulty: "easy", boat: "x-35" },
+    ])
+    const f = frontOf(map)!
+    // The front came through while they were racing.
+    expect(f.arrival).toBeLessThan(Math.min(...state.boats.map((b) => b.finish ?? Infinity)))
+    for (const b of state.boats) expect(b.finish, `${b.name} after ${state.turn} turns`).not.toBeNull()
   }, 60_000)
 
   it("finishes a race around the islands", () => {
