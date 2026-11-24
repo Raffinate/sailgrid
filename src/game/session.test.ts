@@ -168,4 +168,37 @@ describe("Session", () => {
     g.stop()
     h.stop()
   })
+
+  it("keeps every turn of the race for the replay", async () => {
+    let snap!: Snapshot
+    const s = new Session((x) => (snap = x))
+    s.startLocal({ ...cfg, size: "small" }, [
+      { name: "Tern", color: "#0f0", controller: "ai", difficulty: "easy", boat: "melges-24" },
+      { name: "Skua", color: "#00f", controller: "ai", difficulty: "easy", boat: "j-109" },
+    ])
+    s.setAutoplay(false)
+    expect(s.replay(0)?.boats.map((b) => b.pos)).toEqual(snap.state!.boats.map((b) => b.pos))
+    while (!snap.state!.over) {
+      const t = snap.state!.turn
+      s.step()
+      await until(() => snap.state!.turn > t && !snap.resolving, 20_000)
+    }
+    const final = snap.state!
+    for (let k = 0; k <= final.turn; k++) {
+      const r = s.replay(k)!
+      expect(r.turn).toBe(k)
+      r.boats.forEach((b, i) => {
+        const track = final.boats[i].track
+        expect(b.pos).toEqual(track[Math.min(k, track.length - 1)])
+        expect(b.track).toEqual(track.slice(0, k + 1))
+      })
+      expect(r.incidents.every((inc) => inc.turn < k)).toBe(true)
+    }
+    const end = s.replay(final.turn)!
+    expect(end.boats.map((b) => [b.pos, b.finish, b.penalty])).toEqual(final.boats.map((b) => [b.pos, b.finish, b.penalty]))
+    expect(end.incidents).toEqual(final.incidents)
+    expect(s.replay(3)).toBe(s.replay(3))
+    s.stop()
+    expect(s.replay(0)).toBeNull()
+  }, 60_000)
 })

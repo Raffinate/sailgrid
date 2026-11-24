@@ -91,6 +91,10 @@ that suits the day's wind and course, and then the best route round it.
   on raffinate.github.io. The host sends an invite link and each guest gets a boat. The host runs the race,
   including the AI; guests only send their own plans.
 
+After the finish, a **replay** bar under the chart scrubs through the race turn by turn or plays it back
+(←/→ to step, Home/End, Space to play). Each device records the race as it goes, so every player, online
+too, replays on their own.
+
 ## AI
 
 `src/game/ai.ts`. Each turn a backward Dijkstra over (intersection × gates still to cross) gives the time to

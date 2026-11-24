@@ -93,6 +93,12 @@ export class Session {
   private removed = new Set<string>()
   private timer: ReturnType<typeof setTimeout> | null = null
   private generation = 0
+  /**
+   * Every turn of the race so far, for the replay: kept light, without the boats' tracks (the final state
+   * has those) or the incidents (likewise). Each device keeps its own, so each player replays on their own.
+   */
+  private history: RaceState[] = []
+  private replays = new Map<number, RaceState>()
 
   constructor(private readonly onChange: (s: Snapshot) => void) {}
 
@@ -101,8 +107,35 @@ export class Session {
   }
 
   private emit(patch: Partial<Snapshot>) {
+    if (patch.state) this.record(patch.state)
     this.snap = { ...this.snap, ...patch }
     this.onChange(this.snap)
+  }
+
+  private record(state: RaceState) {
+    const light = { ...state, incidents: [], boats: state.boats.map((b) => ({ ...b, track: [] })) }
+    const last = this.history.at(-1)
+    // A boat retiring mid-turn changes the state without a new turn: that turn's entry is replaced.
+    if (last && last.turn === state.turn) this.history[this.history.length - 1] = light
+    else if (!last || state.turn > last.turn) this.history.push(light)
+    this.replays.clear()
+  }
+
+  /** The race as it stood after `turn` turns, for the replay; null if this device didn't see that turn. */
+  replay(turn: number): RaceState | null {
+    const final = this.snap.state
+    if (!final) return null
+    const hit = this.replays.get(turn)
+    if (hit) return hit
+    const h = this.history.find((s) => s.turn === turn)
+    if (!h) return null
+    const state: RaceState = {
+      ...h,
+      incidents: final.incidents.filter((i) => i.turn < turn),
+      boats: h.boats.map((b, i) => ({ ...b, track: final.boats[i].track.slice(0, turn + 1) })),
+    }
+    this.replays.set(turn, state)
+    return state
   }
 
   private clearTimer() {
@@ -121,6 +154,8 @@ export class Session {
     this.peerBoat.clear()
     this.removed.clear()
     this.plans.clear()
+    this.history = []
+    this.replays.clear()
     this.snap = IDLE_SNAPSHOT
     this.onChange(this.snap)
   }
@@ -136,6 +171,7 @@ export class Session {
     const entrants = lobby.map(({ ready: _, ...e }) => e)
     const map = generateMap(config)
     const state = newRace(map, entrants)
+    this.history = []
     this.emit({
       mode,
       phase: "racing",

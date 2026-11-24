@@ -4,6 +4,7 @@ import { track } from "./analytics.ts"
 import { ActionBar } from "./components/ActionBar.tsx"
 import { Board } from "./components/Board.tsx"
 import { Helm } from "./components/Helm.tsx"
+import { ReplayBar } from "./components/ReplayBar.tsx"
 import { HelpDialog } from "./components/HelpDialog.tsx"
 import { IncidentLog, Scoreboard } from "./components/Scoreboard.tsx"
 import {
@@ -107,7 +108,42 @@ export function App() {
     }
   })
   const map = createMemo(() => (snap().phase === "racing" ? snap().map : snap().mode === "guest" ? guestMap() : previewMap()))
-  const state = () => snap().state
+  // Replay, once the race is over: which turn is shown (null: the finish), and whether it's playing.
+  // `step` says the turn moved on by one, so the boats' last move is animated.
+  const [replay, setReplay] = createSignal<{ turn: number; step: boolean } | null>(null)
+  const [playing, setPlaying] = createSignal(false)
+  let playTimer: ReturnType<typeof setInterval> | undefined
+  const lastTurn = () => snap().state?.turn ?? 0
+  const replayTurn = () => replay()?.turn ?? lastTurn()
+  const shown = createMemo(() => {
+    const s = snap()
+    const r = replay()
+    if (!r || !s.state?.over) return { state: s.state, prev: s.prev }
+    return {
+      state: session.replay(r.turn) ?? s.state,
+      prev: r.step && r.turn > 0 ? session.replay(r.turn - 1) : null,
+    }
+  })
+  const stopReplay = () => {
+    clearInterval(playTimer)
+    playTimer = undefined
+    setPlaying(false)
+  }
+  const showTurn = (turn: number) => {
+    const t = Math.max(0, Math.min(lastTurn(), Math.round(turn)))
+    setReplay({ turn: t, step: t === replayTurn() + 1 })
+  }
+  const togglePlay = () => {
+    if (playing()) return stopReplay()
+    // From the start if it's at the end.
+    if (replayTurn() >= lastTurn()) setReplay({ turn: 0, step: false })
+    setPlaying(true)
+    playTimer = setInterval(() => {
+      if (replayTurn() >= lastTurn()) return stopReplay()
+      showTurn(replayTurn() + 1)
+    }, 700)
+  }
+
   const activeBoat = createMemo(() => {
     const s = snap()
     return s.active !== null && s.state && !s.handoff && !s.resolving ? s.state.boats[s.active] : null
@@ -168,6 +204,8 @@ export function App() {
     (over) => {
       if (!over) {
         reported = false
+        stopReplay()
+        setReplay(null)
         return
       }
       if (reported) return
@@ -185,6 +223,16 @@ export function App() {
     const go = e.key === "Enter" || e.key === " "
     // A button reached with Tab gets its own Enter and Space; one that was just clicked doesn't keep them.
     if (go && target?.closest("button, a, [role=button]")?.matches(":focus-visible")) return
+    if (snap().state?.over) {
+      if (e.key === "ArrowLeft") showTurn(replayTurn() - 1)
+      else if (e.key === "ArrowRight") showTurn(replayTurn() + 1)
+      else if (e.key === "Home") showTurn(0)
+      else if (e.key === "End") showTurn(lastTurn())
+      else if (e.key === " ") togglePlay()
+      else return
+      e.preventDefault()
+      return
+    }
     if (!activeBoat()) {
       if (snap().handoff && go) {
         e.preventDefault()
@@ -207,6 +255,7 @@ export function App() {
     if (joinParam) joinOnline(joinParam)
     return () => {
       document.removeEventListener("keydown", onKeyDown)
+      stopReplay()
       session.stop()
     }
   })
@@ -230,7 +279,7 @@ export function App() {
   }
   const winner = () => {
     const s = snap()
-    if (!s.state?.over) return null
+    if (!s.state?.over || replayTurn() < lastTurn()) return null
     return standings(s.state)[0] ?? null
   }
 
@@ -295,8 +344,8 @@ export function App() {
               {(m) => (
                 <Board
                   map={m()}
-                  state={state()}
-                  prev={snap().prev}
+                  state={shown().state}
+                  prev={shown().prev}
                   active={activeBoat()?.id ?? null}
                   focus={activeBoat()?.id ?? snap().mine[0] ?? null}
                   preview={preview() ? { move: preview()!.move, stop: preview()!.stop, aground: preview()!.aground } : null}
@@ -337,6 +386,9 @@ export function App() {
               )}
             </Show>
           </Panel>
+          <Show when={snap().state?.over}>
+            <ReplayBar turn={replayTurn()} last={lastTurn()} playing={playing()} onTurn={showTurn} onPlay={togglePlay} />
+          </Show>
           <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-1 text-xs text-muted-foreground">
             <div class="flex flex-wrap items-center gap-x-4 gap-y-1">
               <label class="inline-flex cursor-pointer items-center gap-1.5">
@@ -348,10 +400,11 @@ export function App() {
                 Show names
               </label>
               <span>Darker water: puffs. Lighter: lulls.</span>
-              <Show when={snap().state}>
+              <Show when={shown().state}>
                 {(s) => (
                   <span class="tabular-nums">
-                    Turn {s().turn + 1} · base wind {Math.round(windField(snap().map!, s().turn).baseSpeed)} kn from{" "}
+                    {/* While racing, the turn being planned; once it's over, the turns sailed (as in the replay). */}
+                    Turn {snap().state?.over ? s().turn : s().turn + 1} · base wind {Math.round(windField(snap().map!, s().turn).baseSpeed)} kn from{" "}
                     {Math.round(windField(snap().map!, s().turn).baseFrom)}°
                   </span>
                 )}

@@ -1,6 +1,7 @@
 import { Dialog, DialogBackdrop, DialogClose, DialogContent, DialogDescription, DialogTitle } from "@ui-sdk/solid/dialog"
 import { For, type Element as JSXElement } from "solid-js"
 import { PENALTY, RULE_TEXT, type Rule } from "../game/race.ts"
+import { Kbd } from "./ui.tsx"
 
 function H(props: { children: JSXElement }) {
   return <h3 class="mt-5 mb-1.5 text-xs font-semibold tracking-wide text-muted-foreground uppercase first:mt-0">{props.children}</h3>
@@ -108,6 +109,12 @@ export function HelpDialog(props: { open: boolean; onOpenChange: (open: boolean)
           <p>
             Add several humans to take turns on one screen; the chart hides until the next sailor takes the helm. Or host
             an online race and send friends the invite link: each gets a boat, and the turn runs once everyone has chosen.
+          </p>
+          <H>Replay</H>
+          <p>
+            After the finish, the bar under the chart replays the race: drag it, or press play. <Kbd>←</Kbd>
+            <Kbd>→</Kbd> step a turn, <Kbd>Home</Kbd> and <Kbd>End</Kbd> jump to the start and the finish, and{" "}
+            <Kbd>Space</Kbd> plays or pauses. Your replay is your own: it doesn't change anyone else's screen.
           </p>
         </div>
       </DialogContent>

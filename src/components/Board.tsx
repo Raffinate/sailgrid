@@ -61,7 +61,8 @@ export function Board(props: BoardProps) {
   let staticLayer: { key: string; canvas: HTMLCanvasElement } | null = null
   let windLayer: { key: string; canvas: HTMLCanvasElement } | null = null
   let animFrom = 0
-  let animTurn = -1
+  /** The state whose move is being (or was last) animated: a replay can show the same turn again. */
+  let animState: RaceState | null = null
   let raf = 0
   let themeVersion = 0
 
@@ -109,11 +110,11 @@ export function Board(props: BoardProps) {
     if (!state) return
 
     // Animate the last turn's moves.
-    if (prev && prev.turn === state.turn - 1 && animTurn !== state.turn) {
-      animTurn = state.turn
+    if (prev && prev.turn === state.turn - 1 && animState !== state) {
+      animState = state
       animFrom = now
     }
-    const t = prev && animTurn === state.turn ? Math.min(1, (now - animFrom) / ANIM_MS) : 1
+    const t = prev && animState === state ? Math.min(1, (now - animFrom) / ANIM_MS) : 1
     const ease = 1 - (1 - t) ** 3
     // Mid-animation each boat is partway along last turn's wake (the arc it actually sailed).
     const where = (id: number): { at: Pt; heading: number | null; upTo: number; tail: Pt[] } => {
