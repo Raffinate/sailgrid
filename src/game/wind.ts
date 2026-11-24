@@ -17,8 +17,9 @@ import { CELLS_PER_KNOT } from "./units.ts"
  *   for several minutes, and fade. On one side of an eddy the wind is stronger and on the other lighter,
  *   and it swings in direction round it.
  * - A front (when the race has one): a line that sweeps across the course partway through. Ahead of it
- *   the wind backs and eases a little; on the line there's a gusty squall; behind it the wind has veered
- *   a long way and is stronger and gustier.
+ *   the wind backs and eases a little; on the line there's a gusty squall; then a kilometre or two of rough,
+ *   chaotic air, full of eddies, where the direction jumps and gusts come and go every turn; and behind
+ *   that the wind has settled, veered a long way, stronger and gustier.
  * - Islands cast wind shadow downwind (longer behind higher land, and gusty inside), the wind speeds
  *   up between islands and round headlands, and wind blowing onto a shore bends along it.
  */
@@ -63,6 +64,8 @@ export interface Front {
   shift: number
   /** Wind strength behind it, as a share of the wind ahead. */
   gain: number
+  /** How deep the rough, chaotic air behind it reaches, cells (about 1.7–3 km: several turns of it). */
+  depth: number
 }
 
 export interface Wind {
@@ -159,9 +162,19 @@ export function frontOf(m: GameMap): Front | null {
   // Never already on the map at the start: it's seen coming.
   const reach = Math.hypot(center.x, center.y)
   const arrival = Math.max(reach / speed + 3, (0.3 + r() * 0.35) * raceTurns)
-  const front = { arrival, toward, speed, shift, gain }
+  const depth = 45 + r() * 35
+  const front = { arrival, toward, speed, shift, gain, depth }
   frontCache.set(m, front)
   return front
+}
+
+/**
+ * How rough the air is at a point `d` cells behind the front line, 0–1. It comes on within a few cells of
+ * the line, stays fully rough for the first 40% of the zone, then fades into the new breeze.
+ */
+export function frontRoughness(f: Front, d: number): number {
+  if (d <= 0) return 0
+  return smoothstep(d / 3) * Math.exp(-Math.max(0, d - 0.4 * f.depth) / (0.35 * f.depth))
 }
 
 /** How far behind the front line a point is this turn, cells: negative ahead of it, positive once it has passed. */
@@ -210,6 +223,47 @@ export function eddiesAt(m: GameMap, turn: number): Eddy[] {
       })
     }
   }
+  if (front) out.push(...frontEddies(m, front, turn))
+  return out
+}
+
+const FRONT_EDDY_LIFE = 9
+
+/**
+ * The rough air behind a front is full of eddies: smaller, stronger and shorter-lived than the usual ones.
+ * They're born across the rough zone as the front passes and drift away with the new wind.
+ */
+function frontEddies(m: GameMap, f: Front, turn: number): Eddy[] {
+  const carry = carryOf(m)
+  const n = dirVec(f.toward)
+  const along = { x: -n.y, y: n.x }
+  const center = { x: (m.width - 1) / 2, y: (m.height - 1) / 2 }
+  const span = Math.hypot(m.width, m.height)
+  const down = dirVec(m.windFrom + f.shift + 180)
+  const out: Eddy[] = []
+  for (let k = Math.floor(turn - FRONT_EDDY_LIFE); k <= turn; k++) {
+    const r = mulberry32(hash(m.config.seed, 23, k + 1000))
+    const count = Math.floor(span / 30 + r())
+    for (let j = 0; j < count; j++) {
+      const birth = k + r()
+      const life = 4 + r() * (FRONT_EDDY_LIFE - 4)
+      // Somewhere along the line, some way back into the rough zone, where the front was at birth.
+      const t = (r() - 0.5) * span
+      const u = 2 + r() * 0.6 * f.depth
+      const radius = 3 + r() * 4
+      const spin: 1 | -1 = r() < 0.5 ? 1 : -1
+      const strength = m.windSpeed * f.gain * (0.15 + r() * 0.15)
+      const age = turn - birth
+      if (age < 0 || age > life) continue
+      const back = f.speed * (birth - f.arrival) - u
+      const x0 = center.x + n.x * back + along.x * t
+      const y0 = center.y + n.y * back + along.y * t
+      const x = x0 + down.x * carry * age
+      const y = y0 + down.y * carry * age
+      if (x < -radius * 3 || y < -radius * 3 || x > m.width + radius * 3 || y > m.height + radius * 3) continue
+      out.push({ x, y, radius, spin, strength: strength * Math.sin((Math.PI * age) / life) })
+    }
+  }
   return out
 }
 
@@ -250,6 +304,8 @@ function compute(m: GameMap, turn: number): WindField {
   const carry = carryOf(m)
   const front = frontOf(m)
   const sSquall = hash(seed, 10)
+  const sChaos = hash(seed, 11)
+  const sGust = hash(seed, 12)
   const eddies = eddiesAt(m, turn)
 
   const baseFromAt = (t: number) =>
@@ -308,6 +364,13 @@ function compute(m: GameMap, turn: number): WindField {
         const squall = Math.exp(-((d - 3) ** 2) / 18)
         f += front.shift * behind - 6 * ahead + 14 * squall * fbm3(sSquall, x / 4, y / 4, turn / 2, 1)
         w *= (1 + (front.gain - 1) * behind) * (1 - 0.15 * ahead) * (1 + 0.35 * squall)
+        // Behind the line the air is chaotic for a kilometre or two: the direction jumps 25–35° and gusts
+        // come and go, a new pattern every turn, before it settles into the new breeze.
+        const rough = frontRoughness(front, d)
+        if (rough > 0.01) {
+          f += clamp(70 * rough * fbm3(sChaos, x / 7, y / 7, turn * 1.1, 2), -35, 35)
+          w *= 1 + rough * clamp(1.1 * fbm3(sGust, x / 5, y / 5, turn * 1.3, 2), -0.35, 0.45)
+        }
         gusty = 1 + 0.5 * behind
       }
 

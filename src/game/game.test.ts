@@ -7,7 +7,7 @@ import { defaultConfig, describeConfig, type GameMap, generateMap, isWater, MAP_
 import { mulberry32 } from "./rng.ts"
 import { crossGates, type Entrant, newRace, type RaceState, resolveTurn, rightOfWay, standings } from "./race.ts"
 import { BOAT_LENGTH_METERS, CELL_METERS, CELLS_PER_KNOT } from "./units.ts"
-import { behindFront, CARRY, eddiesAt, frontOf, windAt, windField } from "./wind.ts"
+import { behindFront, CARRY, eddiesAt, frontOf, frontRoughness, windAt, windField } from "./wind.ts"
 
 const first = boatClass("j-35")
 const polar = first.polar
@@ -336,6 +336,63 @@ describe("front", () => {
     expect(mean(late, angleDiff, "from")).toBeLessThan(f.shift + 8)
     expect(mean(late, (a, b) => a / b, "speed")).toBeGreaterThan(f.gain - 0.15)
     expect(windField(m, late).baseFrom).toBeCloseTo(((windField(settled, late).baseFrom + f.shift) % 360), -1)
+  })
+})
+
+describe("behind a front", () => {
+  const sd = (xs: number[]) => {
+    const mu = xs.reduce((a, b) => a + b, 0) / xs.length
+    return Math.sqrt(xs.reduce((a, b) => a + (b - mu) ** 2, 0) / xs.length)
+  }
+  const corr = (a: number[], b: number[]) => {
+    const ma = a.reduce((s, x) => s + x, 0) / a.length
+    const mb = b.reduce((s, x) => s + x, 0) / b.length
+    let sab = 0
+    let saa = 0
+    let sbb = 0
+    for (let k = 0; k < a.length; k++) {
+      sab += (a[k] - ma) * (b[k] - mb)
+      saa += (a[k] - ma) ** 2
+      sbb += (b[k] - mb) ** 2
+    }
+    return sab / Math.sqrt(saa * sbb)
+  }
+  const pct = (xs: number[], q: number) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length * q)]
+
+  it.each([52, 7, 19])("is rough for several turns, then settles (seed %i)", (seed) => {
+    const settled = generateMap({ ...defaultConfig(seed), islands: "none", shifts: "steady" })
+    const m = generateMap({ ...settled.config, frontChance: 100 })
+    const f = frontOf(m)!
+    // Several turns of it for a boat that stays put.
+    expect(f.depth / f.speed).toBeGreaterThan(2.5)
+    // How the wind differs from settled weather, beyond the front's own shift and strengthening.
+    const dev = (turn: number, i: number) => angleDiff(windField(m, turn).from[i], windField(settled, turn).from[i]) - f.shift
+    const gust = (turn: number, i: number) => windField(m, turn).speed[i] / windField(settled, turn).speed[i] / f.gain
+    const T = Math.round(f.arrival + 2)
+    const now: number[] = []
+    const next: number[] = []
+    const gusts: number[] = []
+    for (let y = 0; y < m.height; y++)
+      for (let x = 0; x < m.width; x++) {
+        if (frontRoughness(f, behindFront(m, f, T, { x, y })) < 0.5) continue
+        if (frontRoughness(f, behindFront(m, f, T + 1, { x, y })) < 0.5) continue
+        const i = y * m.width + x
+        now.push(dev(T, i))
+        next.push(dev(T + 1, i))
+        gusts.push(gust(T, i))
+      }
+    expect(now.length).toBeGreaterThan(500)
+    const later = Math.ceil(f.arrival + (3 * f.depth + m.width + m.height) / f.speed)
+    const calm = Array.from({ length: m.width * m.height }, (_, i) => dev(later, i))
+    // The direction jumps about: far more than once the air has settled.
+    expect(sd(now)).toBeGreaterThan(15)
+    expect(sd(now)).toBeGreaterThan(4 * sd(calm))
+    // A new pattern each turn, not the same one drifting by.
+    expect(corr(now, next)).toBeLessThan(0.5)
+    // Gusts and lulls, within reason.
+    expect(pct(gusts, 0.05)).toBeLessThan(0.8)
+    expect(pct(gusts, 0.95)).toBeGreaterThan(1.3)
+    expect(pct(gusts, 0.95)).toBeLessThan(2)
   })
 })
 

@@ -51,7 +51,9 @@ that suits the day's wind and course, and then the best route round it.
   - possibly a front: a line that sweeps across the course partway through the race. The **Chance of a
     front** setting is the forecast (none, 25%, 50%, 75% or certain); the seed decides whether it comes. It's
     timed from a rough estimate of the race's length. Ahead of it the wind backs and eases, on the line
-    there's a squall, and behind it the wind has veered 35–70° and is 20–50% stronger and gustier. It isn't
+    there's a squall, then 1.7–3 km of rough air (several turns of it) full of eddies, where the direction
+    jumps by 20–30° and gusts and lulls come and go every turn, and behind that the wind has settled, veered
+    35–70° and 20–50% stronger and gustier. It isn't
     drawn or announced: the race description gives only the chance, and the wind shows when it comes.
 
   None of this is a fluid simulation: the wind at each intersection is computed fresh each turn from the seed

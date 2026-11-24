@@ -71,7 +71,9 @@ export function HelpDialog(props: { open: boolean; onOpenChange: (open: boolean)
             The air turns round each one, so on one side of an eddy the wind is stronger and on the other lighter, and its
             direction swings as you sail past. A race can have a front (the race description gives the chance
             of one, not whether or when it comes): it sweeps across the course partway through. Ahead of it the wind backs and eases; on
-            the line it's squally; behind it the wind has veered 35–70° and is stronger and gustier. Watch the wind upwind
+            the line it's squally; then come a few minutes of rough, chaotic air, full of eddies, where the direction jumps
+            by 20–30° and gusts and lulls come and go every turn; behind that the wind has settled, veered 35–70°, stronger
+            and gustier than before. Watch the wind upwind
             to see it coming: being on the right side of the course when it arrives can win the race.
           </p>
           <H>The course</H>
