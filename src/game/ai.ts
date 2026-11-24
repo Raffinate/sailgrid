@@ -194,6 +194,8 @@ function computeRoute(m: GameMap, turn: number, cls: BoatClass): Route {
     const vy = (v - vx) / W
     const here = gates[layer]
     const before = layer > 0 ? gates[layer - 1] : null
+    // Crossing the ray of the mark just rounded back the wrong way un-rounds it: not a move within this layer.
+    const undone = layer > 0 && m.gates[layer - 1].kind === "mark" ? before : null
     for (let k = 0; k < K; k++) {
       const ux = vx - OFFSETS[k].x
       const uy = vy - OFFSETS[k].y
@@ -202,8 +204,8 @@ function computeRoute(m: GameMap, turn: number, cls: BoatClass): Route {
       const step = steps[e]
       if (step === Infinity) continue
       const u = uy * W + ux
-      // Same layer: the step mustn't touch this layer's gate.
-      if (here[e] === 0) {
+      // Same layer: the step mustn't touch this layer's gate, nor cross the previous mark's ray backwards.
+      if (here[e] === 0 && !(undone && undone[e] === -1)) {
         const ps = layer * N + u
         if (d + step < time[ps]) {
           time[ps] = d + step

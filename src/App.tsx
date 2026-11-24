@@ -69,6 +69,8 @@ export function App() {
   const [showWind, setShowWind] = createSignal(true)
   const [showNames, setShowNames] = createSignal(true)
   const session = new Session((s) => setSnap(s))
+  // Debugging from the browser console: `copy(sailgrid.trace())` copies the race so far as JSON.
+  ;(globalThis as { sailgrid?: unknown }).sailgrid = { trace: () => session.trace() }
 
   createEffect(
     () => ({ config: config(), players: players() }),

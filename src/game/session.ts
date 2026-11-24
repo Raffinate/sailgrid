@@ -138,6 +138,15 @@ export class Session {
     return state
   }
 
+  /**
+   * Debugging: the race so far as JSON — settings, entrants, the current state with tracks and incidents, and
+   * every turn this device saw. From the browser console: `copy(sailgrid.trace())`.
+   */
+  trace(): string {
+    const { mode, phase, config, entrants, state } = this.snap
+    return JSON.stringify({ mode, phase, config, entrants, state, history: this.history })
+  }
+
   private clearTimer() {
     if (this.timer !== null) clearTimeout(this.timer)
     this.timer = null

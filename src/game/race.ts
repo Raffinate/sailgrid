@@ -2,6 +2,7 @@ import { type Move, type Plan, pathAt, simulate, tackOf } from "./boat.ts"
 import { closestApproach, cross, dirVec, dist, dot, lerp, pointSegment, type Pt, roundPt, samePt, segmentCross, sub } from "./geom.ts"
 import { type GameMap, isWater, landHit, startingPositions } from "./map.ts"
 import { type BoatClassId, boatClass } from "./fleet.ts"
+import { type Rng } from "./rng.ts"
 import { windAt, windField } from "./wind.ts"
 
 export type Controller = "human" | "ai" | "remote"
@@ -75,8 +76,13 @@ export const CONTACT = 0.8
 const MARK_TOUCH = 0.35
 const OVERLAP = 0.8
 
-export function newRace(map: GameMap, entrants: Entrant[], maxTurns = 400): RaceState {
+/** A new race, with the boats lined up along the start line in a random order (`rnd` picks it). */
+export function newRace(map: GameMap, entrants: Entrant[], maxTurns = 400, rnd: Rng = Math.random): RaceState {
   const spots = startingPositions(map, entrants.length)
+  for (let i = spots.length - 1; i > 0; i--) {
+    const j = Math.floor(rnd() * (i + 1))
+    ;[spots[i], spots[j]] = [spots[j], spots[i]]
+  }
   return {
     turn: 0,
     maxTurns,
@@ -108,22 +114,34 @@ export interface Progress {
   finishedAt: number | null
 }
 
-/** Advance through the course gates crossed by the move from → to. */
+/**
+ * Advance through the course gates crossed by the move from → to. A mark counts once the boat crosses its
+ * rounding ray the right way; crossing the ray of the mark just rounded back the wrong way un-rounds it,
+ * so a boat can't touch the ray and turn back.
+ */
 export function crossGates(map: GameMap, next: number, unwind: number, from: Pt, to: Pt): Progress {
   let t0 = 0
   const move = sub(to, from)
-  for (let guard = 0; guard < 6 && next < map.gates.length; guard++) {
-    const g = map.gates[next]
+  for (let guard = 0; guard < 8 && next < map.gates.length; guard++) {
     const p0 = lerp(from, to, t0)
+    const g = map.gates[next]
+    const s = Math.sign(cross(sub(g.b, g.a), move))
     const c = segmentCross(p0, to, g.a, g.b)
-    if (!c) break
-    const tAbs = t0 + (1 - t0) * c.t
+    const back = next > 0 && unwind === 0 ? map.gates[next - 1] : null
+    const cb =
+      back?.kind === "mark" && Math.sign(cross(sub(back.b, back.a), move)) !== back.sign
+        ? segmentCross(p0, to, back.a, back.b)
+        : null
+    const undo = cb !== null && (c === null || cb.t < c.t)
+    const hit = undo ? cb : c
+    if (!hit) break
+    const tAbs = t0 + (1 - t0) * hit.t
     if (tAbs <= 1e-9) {
       t0 = 1e-6
       continue
     }
-    const s = Math.sign(cross(sub(g.b, g.a), move))
-    if (g.sign === 0 || s === g.sign) {
+    if (undo) next--
+    else if (g.sign === 0 || s === g.sign) {
       if (unwind > 0) unwind--
       else {
         next++

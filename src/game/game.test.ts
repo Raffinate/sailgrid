@@ -5,7 +5,7 @@ import { boatClass, FLEET, windBand } from "./fleet.ts"
 import { angleDiff, bearing, closestApproach, dirVec, segmentCross } from "./geom.ts"
 import { defaultConfig, describeConfig, type GameMap, generateMap, isWater, MAP_SIZES, type RaceConfig, randomConfig, startingPositions, type Weather } from "./map.ts"
 import { mulberry32 } from "./rng.ts"
-import { crossGates, type Entrant, newRace, type RaceState, resolveTurn, rightOfWay, standings } from "./race.ts"
+import { crossGates, crossGatesPath, type Entrant, newRace, type RaceState, resolveTurn, rightOfWay, standings } from "./race.ts"
 import { BOAT_LENGTH_METERS, CELL_METERS, CELLS_PER_KNOT } from "./units.ts"
 import { behindFront, behindLine, CARRY, eddiesAt, frontOf, frontRoughness, windAt, windField, windLinesAt, windLineWeight } from "./wind.ts"
 
@@ -471,11 +471,22 @@ describe("course progress", () => {
     expect(crossGates(m, 1, 0, at(2, 3), at(2, -3)).next).toBe(2)
     expect(crossGates(m, 1, 0, at(2, -3), at(2, 3))).toMatchObject({ next: 1, unwind: 1 })
   })
+
+  it("takes the rounding back when a boat crosses the ray and turns back", () => {
+    const mark = m.gates[1].mark!
+    const up = dirVec(m.windFrom)
+    const right = dirVec(m.windFrom + 90)
+    const at = (u: number, r: number) => ({ x: mark.x + up.x * u + right.x * r, y: mark.y + up.y * u + right.y * r })
+    expect(crossGates(m, 1, 0, at(6, 3), at(6, -3)).next).toBe(2)
+    expect(crossGates(m, 2, 0, at(6, -3), at(6, 3))).toMatchObject({ next: 1, unwind: 0 })
+    // Across and back within one move: still before the mark.
+    expect(crossGatesPath(m, 1, 0, [at(6, 3), at(6, -3), at(5, 3)]).next).toBe(1)
+  })
 })
 
 function runRace(cfg: RaceConfig, entrants: Entrant[]): { state: RaceState; map: GameMap } {
   const map = generateMap(cfg)
-  let state = newRace(map, entrants, 250)
+  let state = newRace(map, entrants, 250, mulberry32(cfg.seed))
   while (!state.over) {
     const plans = new Map(state.boats.map((b) => [b.id, chooseMove(map, state, b.id)]))
     state = resolveTurn(map, state, plans)
@@ -504,6 +515,16 @@ describe("AI race", () => {
     const f = frontOf(map)!
     // The front came through while they were racing.
     expect(f.arrival).toBeLessThan(Math.min(...state.boats.map((b) => b.finish ?? Infinity)))
+    for (const b of state.boats) expect(b.finish, `${b.name} after ${state.turn} turns`).not.toBeNull()
+  }, 60_000)
+
+  it("goes all the way round a mark rather than touching its ray and turning back", () => {
+    // A race where the boats used to cross Mark 1's ray south-east of it and head back north to Mark 2.
+    const cfg: RaceConfig = { seed: 682227, course: "triangle", laps: 1, size: "medium", islands: "many", weather: "stormy", windSpeed: 16 }
+    const { state } = runRace(cfg, [
+      { name: "Hard", color: "#000", controller: "ai", difficulty: "hard", boat: "j-109" },
+      { name: "Easy", color: "#222", controller: "ai", difficulty: "easy", boat: "x-35" },
+    ])
     for (const b of state.boats) expect(b.finish, `${b.name} after ${state.turn} turns`).not.toBeNull()
   }, 60_000)
 
