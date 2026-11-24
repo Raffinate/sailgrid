@@ -59,6 +59,14 @@ function Setting(props: { label: string; children: import("solid-js").Element })
 /** The race: roll a random one, or open Customize to set the course, wind and map by hand. */
 export function CoursePanel(props: { config: RaceConfig; disabled?: boolean; onChange: (c: RaceConfig) => void }) {
   const set = <K extends keyof RaceConfig>(k: K, v: RaceConfig[K]) => props.onChange({ ...props.config, [k]: v })
+  // The map number as typed. The input is controlled and puts back its value after every keystroke unless
+  // that value changes, so the text being edited lives here; each whole number picks that map at once.
+  const [seedText, setSeedText] = createSignal<string | null>(null)
+  const editSeed = (text: string) => {
+    setSeedText(text)
+    const n = Number(text)
+    if (text.trim() !== "" && Number.isInteger(n) && n >= 0) set("seed", n)
+  }
   return (
     <Panel title="Race" class="space-y-3">
       <div class="flex items-start justify-between gap-3">
@@ -182,12 +190,10 @@ export function CoursePanel(props: { config: RaceConfig; disabled?: boolean; onC
               <span class="mb-1 block text-sm font-medium">Map number</span>
               <Input
                 type="number"
-                value={String(props.config.seed)}
+                value={seedText() ?? String(props.config.seed)}
                 disabled={props.disabled}
-                onChange={(e: Event) => {
-                  const n = Number((e.currentTarget as HTMLInputElement).value)
-                  if (Number.isFinite(n) && n >= 0) set("seed", Math.floor(n))
-                }}
+                onValueChange={editSeed}
+                onBlur={() => setSeedText(null)}
                 class="h-9 w-full rounded-md border border-input bg-card px-3 text-sm tabular-nums shadow-xs outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
               />
             </label>
