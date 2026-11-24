@@ -1,5 +1,5 @@
 import { bearing, clamp, dirVec, dot, type Pt } from "./geom.ts"
-import type { GameMap } from "./map.ts"
+import type { GameMap, Weather } from "./map.ts"
 import { fbm3, hash, mulberry32, noise1, valueNoise } from "./rng.ts"
 import { CELLS_PER_KNOT } from "./units.ts"
 
@@ -96,24 +96,119 @@ interface Params {
   biasDir: number
 }
 
+/**
+ * How unstable the wind is, by the day's weather. Everything that moves the wind around scales with it:
+ * the swings of the breeze, puffs, the bias across the course, eddies, wind lines, and the odds of a front.
+ */
+interface Instability {
+  /** Swings of the breeze, degrees: the main one and the quick one. */
+  amp: number
+  amp2: number
+  wander: number
+  drift: number
+  /** Rise and fall of the breeze's strength, as a share. */
+  pressure: number
+  puff: number
+  puffVeerNoise: number
+  biasSpeed: number
+  biasDir: number
+  /** Eddies: how many (relative), and how strong (a share of the wind speed, lowest and highest). */
+  eddyRate: number
+  eddyStrength: [number, number]
+  /** Wind lines: chance one comes through in any turn, and how big their changes are (relative). */
+  lineRate: number
+  lineSize: number
+  /** Chance of a front during the race. */
+  front: number
+}
+
+const INSTABILITY: Record<Weather, Instability> = {
+  settled: {
+    amp: 3,
+    amp2: 1.2,
+    wander: 1.5,
+    drift: 0.1,
+    pressure: 0.04,
+    puff: 0.12,
+    puffVeerNoise: 2,
+    biasSpeed: 0.05,
+    biasDir: 2,
+    eddyRate: 0.8,
+    eddyStrength: [0.1, 0.18],
+    lineRate: 1 / 24,
+    lineSize: 0.7,
+    front: 0,
+  },
+  changeable: {
+    amp: 5.5,
+    amp2: 2.2,
+    wander: 3,
+    drift: 0.2,
+    pressure: 0.06,
+    puff: 0.2,
+    puffVeerNoise: 3.5,
+    biasSpeed: 0.06,
+    biasDir: 3.5,
+    eddyRate: 1,
+    eddyStrength: [0.14, 0.24],
+    lineRate: 1 / 14,
+    lineSize: 0.85,
+    front: 0.05,
+  },
+  unsettled: {
+    amp: 9,
+    amp2: 3.5,
+    wander: 5,
+    drift: 0.4,
+    pressure: 0.08,
+    puff: 0.3,
+    puffVeerNoise: 5,
+    biasSpeed: 0.08,
+    biasDir: 5,
+    eddyRate: 1.3,
+    eddyStrength: [0.18, 0.32],
+    lineRate: 1 / 10,
+    lineSize: 1,
+    front: 0.2,
+  },
+  stormy: {
+    amp: 12,
+    amp2: 4.5,
+    wander: 6.5,
+    drift: 0.5,
+    pressure: 0.1,
+    puff: 0.38,
+    puffVeerNoise: 6,
+    biasSpeed: 0.09,
+    biasDir: 6,
+    eddyRate: 1.6,
+    eddyStrength: [0.22, 0.38],
+    lineRate: 1 / 8,
+    lineSize: 1.15,
+    front: 0.45,
+  },
+}
+
+const instability = (m: GameMap) => INSTABILITY[m.config.weather] ?? INSTABILITY.unsettled
+
 function params(m: GameMap): Params {
   const r = mulberry32(hash(m.config.seed, 3))
-  const shifty = m.config.shifts === "shifty"
+  const k = instability(m)
   return {
-    amp: shifty ? 9 : 3.5,
-    amp2: shifty ? 3.5 : 1.5,
+    amp: k.amp,
+    amp2: k.amp2,
     period: 14 + r() * 10,
     period2: 5 + r() * 3,
     periodS: 18 + r() * 12,
     phase: [r() * 2 * Math.PI, r() * 2 * Math.PI, r() * 2 * Math.PI],
-    wander: shifty ? 5 : 2,
-    drift: (r() - 0.5) * (shifty ? 0.4 : 0.12),
-    pressure: shifty ? 0.08 : 0.05,
-    puff: shifty ? 0.3 : 0.15,
+    wander: k.wander,
+    drift: (r() - 0.5) * k.drift,
+    pressure: k.pressure,
+    puff: k.puff,
     veer: 25,
-    puffVeerNoise: shifty ? 5 : 2,
-    biasSpeed: shifty ? 0.08 : 0.05,
-    biasDir: shifty ? 5 : 2,
+    puffVeerNoise: k.puffVeerNoise,
+    biasSpeed: k.biasSpeed,
+    biasDir: k.biasDir,
   }
 }
 
@@ -142,8 +237,8 @@ const frontCache = new WeakMap<GameMap, Front | null>()
 export function frontOf(m: GameMap): Front | null {
   const hit = frontCache.get(m)
   if (hit !== undefined) return hit
-  // The forecast gives the chance; the seed decides whether it comes.
-  const comes = mulberry32(hash(m.config.seed, 32))() * 100 < m.config.frontChance
+  // The weather sets the odds; the seed decides whether it comes, so every player gets the same race.
+  const comes = m.config.front ?? mulberry32(hash(m.config.seed, 32))() < instability(m).front
   if (!comes) {
     frontCache.set(m, null)
     return null
@@ -220,18 +315,18 @@ function lineFor(m: GameMap, k: number): WindLine | null {
   const hit = perMap.get(k)
   if (hit !== undefined) return hit
   const r = mulberry32(hash(m.config.seed, 41, k + 1000))
-  // On average one every 10 turns on shifty days, every 16 on steady ones.
-  const rate = m.config.shifts === "shifty" ? 1 / 10 : 1 / 16
+  // On average one every 24 turns when settled, down to every 8 when stormy.
+  const { lineRate, lineSize } = instability(m)
   let line: WindLine | null = null
-  if (r() < rate) {
+  if (r() < lineRate) {
     const speed = Math.max(3, (0.6 + r() * 0.3) * m.windSpeed * CELLS_PER_KNOT)
     const stronger = r() < 0.75
     line = {
       center: k + r(),
       toward: norm(m.windFrom + 180 + (r() - 0.5) * 40),
       speed,
-      shift: (r() < 0.55 ? 1 : -1) * (10 + r() * 15),
-      gain: stronger ? 1.15 + r() * 0.25 : 0.75 + r() * 0.15,
+      shift: (r() < 0.55 ? 1 : -1) * (10 + r() * 15) * lineSize,
+      gain: 1 + (stronger ? 0.15 + r() * 0.25 : -0.1 - r() * 0.15) * lineSize,
       depth: (3 + r() * 5) * speed,
     }
   }
@@ -275,11 +370,11 @@ const EDDY_MAX_LIFE = 14
 /**
  * The eddies on the map this turn. Each is born at a random place and time, drifts downwind with the air
  * (along the wind it was born in, so behind a front they drift the new way), turns up and dies away over
- * 6–14 turns. Shifty days have more of them, and stronger.
+ * 6–14 turns. The worse the weather, the more of them, and the stronger.
  */
 export function eddiesAt(m: GameMap, turn: number): Eddy[] {
-  const shifty = m.config.shifts === "shifty"
-  const rate = ((m.width * m.height) / 21000) * (shifty ? 1.3 : 1)
+  const { eddyRate, eddyStrength } = instability(m)
+  const rate = ((m.width * m.height) / 21000) * eddyRate
   const carry = carryOf(m)
   const front = frontOf(m)
   const out: Eddy[] = []
@@ -293,7 +388,7 @@ export function eddiesAt(m: GameMap, turn: number): Eddy[] {
       const y0 = r() * (m.height - 1)
       const radius = 4 + r() * 6
       const spin: 1 | -1 = r() < 0.5 ? 1 : -1
-      const strength = m.windSpeed * (shifty ? 0.18 + r() * 0.14 : 0.12 + r() * 0.1)
+      const strength = m.windSpeed * (eddyStrength[0] + r() * (eddyStrength[1] - eddyStrength[0]))
       const age = turn - birth
       if (age < 0 || age > life) continue
       const veer = front ? front.shift * smoothstep(0.5 + behindFront(m, front, birth, { x: x0, y: y0 }) / FRONT_WIDTH) : 0

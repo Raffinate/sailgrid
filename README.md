@@ -38,7 +38,10 @@ that suits the day's wind and course, and then the best route round it.
   - The wind is sampled along the way.
   - Land, marks, gates and contact between boats are all checked along the arc actually sailed.
 - **Wind.** Every intersection has its own direction and strength, a pure function of the map seed and
-  the turn number, so all clients and the AI agree (`src/game/wind.ts`). It's made of:
+  the turn number, so all clients and the AI agree (`src/game/wind.ts`). The **Weather** setting (settled,
+  changeable, unsettled, stormy) sets how unstable it is: how big the shifts are, how strong the puffs, how
+  many wind lines and eddies, and whether a front might come. Wind speed is a separate setting, though random
+  races make worse weather windier on average. It's made of:
   - a breeze that oscillates and wanders, with each shift travelling downwind with the air, so boats
     further upwind get it first;
   - puffs and lulls carried downwind at about 70% of the wind speed, stretched along the wind and changing
@@ -46,20 +49,19 @@ that suits the day's wind and course, and then the best route round it.
   - a slow, large-scale bias that favours one part of the course;
   - wind lines: a new breeze filling in. A band of changed wind moves down the course; behind its leading
     edge the wind has shifted 10–25° either way and is usually 15–40% stronger (sometimes lighter), for 3–8
-    turns at any one spot, before the old breeze returns. About one every 10 turns on shifty days, every 16
-    on steady ones;
+    turns at any one spot, before the old breeze returns. About one every 24 turns when settled, down to
+    one every 8 when stormy, and bigger in worse weather;
   - eddies, a few hundred metres across, that drift downwind with the air for 6–14 turns and fade; the air
     turns round each one, so the wind is stronger on one side, lighter on the other, and swings in direction;
   - wind shadow behind islands (longer behind higher land, and gusty), wind speeding up between islands and
     round headlands, and wind bending along a shore it blows onto;
-  - possibly a front: a line that sweeps across the course partway through the race (random races get one
-    about one time in ten). The **Chance of a
-    front** setting is the forecast (none, 25%, 50%, 75% or certain); the seed decides whether it comes. It's
-    timed from a rough estimate of the race's length. Ahead of it the wind backs and eases, on the line
-    there's a squall, then 1.7–3 km of rough air (several turns of it) full of eddies, where the direction
-    jumps by 20–30° and gusts and lulls come and go every turn, and behind that the wind has settled, veered
-    35–70° and 20–50% stronger and gustier. It isn't
-    drawn or announced: the race description gives only the chance, and the wind shows when it comes.
+  - occasionally a front, on any day but a settled one: 5% of changeable days, 20% of unsettled ones and 45% of
+    stormy ones (about one random race in nine).
+    A line sweeps across the course partway through the race. Ahead of it the wind backs and eases, on the
+    line there's a squall, then 1.7–3 km of rough air (several turns of it) full of eddies, where the
+    direction jumps by 20–30° and gusts and lulls come and go every turn, and behind that the wind has
+    settled, veered 35–70° and 20–50% stronger, for the rest of the race. Nothing announces it: the wind shows
+    it coming.
 
   None of this is a fluid simulation: the wind at each intersection is computed fresh each turn from the seed
   and the turn number, so the motion comes from that recipe changing smoothly with time.

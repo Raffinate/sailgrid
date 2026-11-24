@@ -4,10 +4,13 @@ import { fbm, hash, mulberry32 } from "./rng.ts"
 export type MapSize = "small" | "medium" | "large"
 export type IslandDensity = "none" | "few" | "many"
 export type CourseKind = "windward-leeward" | "triangle" | "islands"
-export type Shiftiness = "steady" | "shifty"
-/** Chances of a front sweeping across the course partway through the race, percent: the forecast. */
-export const FRONT_CHANCES = [0, 25, 50, 75, 100] as const
-export type FrontChance = (typeof FRONT_CHANCES)[number]
+/**
+ * The day's weather, from settled (high pressure: steady breeze, small shifts) to stormy (deep low: big
+ * shifts, strong puffs, wind lines and eddies, and quite possibly a front). It sets how unstable the wind
+ * is; the wind speed is its own setting.
+ */
+export type Weather = "settled" | "changeable" | "unsettled" | "stormy"
+export const WEATHERS: Weather[] = ["settled", "changeable", "unsettled", "stormy"]
 
 export interface RaceConfig {
   seed: number
@@ -18,9 +21,12 @@ export interface RaceConfig {
   laps: number
   /** Mean true wind speed, knots. */
   windSpeed: number
-  shifts: Shiftiness
-  /** Whether a front actually comes is rolled from the seed, so every player gets the same weather. */
-  frontChance: FrontChance
+  weather: Weather
+  /**
+   * Force a front (true) or none (false), for tests and experiments. Left out, the weather and the seed
+   * decide, so every player gets the same race.
+   */
+  front?: boolean
 }
 
 export const defaultConfig = (seed: number): RaceConfig => ({
@@ -30,8 +36,7 @@ export const defaultConfig = (seed: number): RaceConfig => ({
   course: "windward-leeward",
   laps: 2,
   windSpeed: 12,
-  shifts: "shifty",
-  frontChance: 0,
+  weather: "unsettled",
 })
 
 /** Pick from weighted options. */
@@ -45,7 +50,29 @@ function weighted<T>(options: [T, number][], r: number): T {
   return options[options.length - 1][0]
 }
 
-/** A random race: course, laps, map, islands, wind strength and shiftiness all rolled at once. */
+/** Wind speed ranges for random races: worse weather tends to be windier, though not always. */
+const RANDOM_WIND: Record<Weather, [number, number]> = {
+  settled: [5, 13],
+  changeable: [7, 17],
+  unsettled: [9, 21],
+  stormy: [14, 25],
+}
+
+function weatherAndWind(rnd: () => number): { weather: Weather; windSpeed: number } {
+  const weather = weighted<Weather>(
+    [
+      ["settled", 3],
+      ["changeable", 4],
+      ["unsettled", 3],
+      ["stormy", 1],
+    ],
+    rnd(),
+  )
+  const [lo, hi] = RANDOM_WIND[weather]
+  return { weather, windSpeed: lo + Math.floor(rnd() * (hi - lo + 1)) }
+}
+
+/** A random race: course, laps, map, islands, wind strength and weather all rolled at once. */
 export function randomConfig(rnd: () => number = Math.random): RaceConfig {
   const course = weighted<CourseKind>(
     [
@@ -82,19 +109,7 @@ export function randomConfig(rnd: () => number = Math.random): RaceConfig {
       ],
       rnd(),
     ),
-    windSpeed: 5 + Math.floor(rnd() * 18),
-    shifts: rnd() < 0.4 ? "steady" : "shifty",
-    // A front is a rare event in a real race: about one random race in ten gets one.
-    frontChance: weighted<FrontChance>(
-      [
-        [0, 12],
-        [25, 2],
-        [50, 1],
-        [75, 0.5],
-        [100, 0.5],
-      ],
-      rnd(),
-    ),
+    ...weatherAndWind(rnd),
   }
 }
 
@@ -104,14 +119,11 @@ const COURSE_LABEL: Record<CourseKind, string> = {
   islands: "Round the islands",
 }
 
-const frontForecast = (chance: FrontChance) =>
-  chance === 0 ? "" : chance === 100 ? ", a front coming" : `, ${chance}% chance of a front`
-
-/** One line on what a race will be like: "Triangle · 2 laps · 16 kn, shifty · few islands · medium map". */
+/** One line on what a race will be like: "Triangle · 2 laps · 16 kn, unsettled · few islands · medium map". */
 export function describeConfig(c: RaceConfig): string {
   return [
     COURSE_LABEL[c.course] + (c.course === "islands" ? "" : ` · ${c.laps} ${c.laps === 1 ? "lap" : "laps"}`),
-    `${c.windSpeed} kn, ${c.shifts}` + frontForecast(c.frontChance),
+    `${c.windSpeed} kn, ${c.weather}`,
     c.islands === "none" ? "open water" : `${c.islands} islands`,
     `${c.size} map`,
   ].join(" · ")

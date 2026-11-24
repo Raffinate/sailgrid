@@ -3,7 +3,7 @@ import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "@ui-sdk/solid
 import { Input } from "@ui-sdk/solid/input"
 import { createSignal, For, Show } from "solid-js"
 import { type BoatClassId, boatClass, DEFAULT_BOAT, FLEET, WIND_BAND_LABEL, windBand } from "../game/fleet.ts"
-import { type CourseKind, describeConfig, type IslandDensity, type MapSize, type FrontChance, type RaceConfig, randomConfig, type Shiftiness } from "../game/map.ts"
+import { type CourseKind, describeConfig, type IslandDensity, type MapSize, type RaceConfig, randomConfig, type Weather } from "../game/map.ts"
 import { parseJoinId } from "../game/multiplayer.ts"
 import type { Difficulty, Entrant } from "../game/race.ts"
 import { randomSeed } from "../game/rng.ts"
@@ -153,31 +153,18 @@ export function CoursePanel(props: { config: RaceConfig; disabled?: boolean; onC
               onChange={(v) => set("islands", v)}
             />
           </Setting>
-          <Setting label="Wind shifts">
-            <Segmented<Shiftiness>
-              label="Wind shifts"
-              value={props.config.shifts}
+          <Setting label="Weather">
+            <Segmented<Weather>
+              label="Weather"
+              value={props.config.weather}
               disabled={props.disabled}
               options={[
-                ["steady", "Steady"],
-                ["shifty", "Shifty"],
+                ["settled", "Settled"],
+                ["changeable", "Changeable"],
+                ["unsettled", "Unsettled"],
+                ["stormy", "Stormy"],
               ]}
-              onChange={(v) => set("shifts", v)}
-            />
-          </Setting>
-          <Setting label="Chance of a front">
-            <Segmented
-              label="Chance of a front"
-              value={String(props.config.frontChance)}
-              disabled={props.disabled}
-              options={[
-                ["0", "None"],
-                ["25", "25%"],
-                ["50", "50%"],
-                ["75", "75%"],
-                ["100", "Certain"],
-              ]}
-              onChange={(v) => set("frontChance", Number(v) as FrontChance)}
+              onChange={(v) => set("weather", v)}
             />
           </Setting>
           <RangeField

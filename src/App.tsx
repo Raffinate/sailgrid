@@ -40,8 +40,10 @@ function loadSetup(): { config: RaceConfig; players: SetupPlayer[] } {
       // Setups saved before there was a choice of boats.
       boat: FLEET.some((c) => c.id === p.boat) ? p.boat : DEFAULT_BOAT,
     }))
-    // Setups saved before fronts had none.
-    return { config: { ...fallback.config, frontChance: 0, ...saved.config }, players }
+    // Setups saved before the Weather setting had steady or shifty wind (and maybe a chance of a front).
+    const { shifts, frontChance: _, ...config } = (saved.config ?? {}) as Partial<RaceConfig> & { shifts?: string; frontChance?: number }
+    const weather = config.weather ?? (shifts === "steady" ? "settled" : shifts === "shifty" ? "unsettled" : fallback.config.weather)
+    return { config: { ...fallback.config, ...config, weather }, players }
   } catch {
     return fallback
   }

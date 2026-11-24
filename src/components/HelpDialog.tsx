@@ -74,12 +74,13 @@ export function HelpDialog(props: { open: boolean; onOpenChange: (open: boolean)
           <p class="mt-2">
             Small eddies, a few hundred metres across, drift downwind with the breeze for several minutes and fade out.
             The air turns round each one, so on one side of an eddy the wind is stronger and on the other lighter, and its
-            direction swings as you sail past. A race can have a front (the race description gives the chance
-            of one, not whether or when it comes): it sweeps across the course partway through. Ahead of it the wind backs and eases; on
-            the line it's squally; then come a few minutes of rough, chaotic air, full of eddies, where the direction jumps
-            by 20–30° and gusts and lulls come and go every turn; behind that the wind has settled, veered 35–70°, stronger
-            and gustier than before. Watch the wind upwind
-            to see it coming: being on the right side of the course when it arrives can win the race.
+            direction swings as you sail past.
+          </p>
+          <p class="mt-2">
+            The Weather setting sets how unstable all this is: settled days have a steady breeze and small shifts;
+            unsettled and stormy ones have big shifts, strong puffs, and more wind lines and eddies. Unless it's
+            settled, a front may come through, more likely the worse the weather: the wind backs and eases ahead of it, then a few minutes
+            of rough, chaotic air, and after that it has veered a long way and blows harder for the rest of the race.
           </p>
           <H>The course</H>
           <p>

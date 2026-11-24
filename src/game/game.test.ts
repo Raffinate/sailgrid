@@ -3,7 +3,7 @@ import { chooseMove, route, timeToFinish } from "./ai.ts"
 import { maneuver, simulate, tackOf } from "./boat.ts"
 import { boatClass, FLEET, windBand } from "./fleet.ts"
 import { angleDiff, bearing, closestApproach, dirVec, segmentCross } from "./geom.ts"
-import { defaultConfig, describeConfig, type GameMap, generateMap, isWater, MAP_SIZES, type RaceConfig, randomConfig, startingPositions } from "./map.ts"
+import { defaultConfig, describeConfig, type GameMap, generateMap, isWater, MAP_SIZES, type RaceConfig, randomConfig, startingPositions, type Weather } from "./map.ts"
 import { mulberry32 } from "./rng.ts"
 import { crossGates, type Entrant, newRace, type RaceState, resolveTurn, rightOfWay, standings } from "./race.ts"
 import { BOAT_LENGTH_METERS, CELL_METERS, CELLS_PER_KNOT } from "./units.ts"
@@ -189,7 +189,7 @@ describe("maps", () => {
       const cfg = randomConfig(rnd)
       kinds.add(cfg.course)
       expect(cfg.windSpeed).toBeGreaterThanOrEqual(5)
-      expect(cfg.windSpeed).toBeLessThanOrEqual(22)
+      expect(cfg.windSpeed).toBeLessThanOrEqual(25)
       expect(describeConfig(cfg)).toContain(`${cfg.windSpeed} kn`)
       const m = generateMap(cfg)
       const r = route(m, 0, first)
@@ -247,7 +247,7 @@ describe("maps", () => {
 })
 
 describe("eddies", () => {
-  const m = generateMap({ ...defaultConfig(41), islands: "none", shifts: "shifty" })
+  const m = generateMap({ ...defaultConfig(41), islands: "none", weather: "unsettled" })
 
   it("drift downwind with the air", () => {
     const now = eddiesAt(m, 20)
@@ -292,8 +292,8 @@ describe("eddies", () => {
 })
 
 describe("front", () => {
-  const settled = generateMap({ ...defaultConfig(52), islands: "none", shifts: "steady" })
-  const m = generateMap({ ...settled.config, frontChance: 100 })
+  const settled = generateMap({ ...defaultConfig(52), islands: "none", weather: "settled" })
+  const m = generateMap({ ...settled.config, front: true })
   const f = frontOf(m)!
   const mean = (turn: number, g: (a: number, b: number) => number, pick: "from" | "speed") => {
     const a = windField(m, turn)[pick]
@@ -317,14 +317,19 @@ describe("front", () => {
     expect(behindFront(m, f, f.arrival, { x: (m.width - 1) / 2, y: (m.height - 1) / 2 })).toBeCloseTo(0)
   })
 
-  it("comes with about the forecast chance", () => {
-    for (const chance of [25, 50, 75] as const) {
+  it("comes on any day but a settled one, more often the worse the weather", () => {
+    const share = (weather: Weather) => {
       let fronts = 0
-      for (let seed = 0; seed < 400; seed++)
-        if (frontOf(generateMap({ ...defaultConfig(seed), size: "small", islands: "none", frontChance: chance }))) fronts++
-      expect(fronts / 400).toBeGreaterThan(chance / 100 - 0.08)
-      expect(fronts / 400).toBeLessThan(chance / 100 + 0.08)
+      for (let seed = 0; seed < 400; seed++) if (frontOf(generateMap({ ...defaultConfig(seed), size: "small", islands: "none", weather }))) fronts++
+      return fronts / 400
     }
+    expect(share("settled")).toBe(0)
+    expect(share("changeable")).toBeGreaterThan(0.01)
+    expect(share("changeable")).toBeLessThan(0.1)
+    expect(share("unsettled")).toBeGreaterThan(0.13)
+    expect(share("unsettled")).toBeLessThan(0.27)
+    expect(share("stormy")).toBeGreaterThan(0.37)
+    expect(share("stormy")).toBeLessThan(0.53)
   }, 60_000)
 
   it("leaves the wind as it was ahead of it, and veered and stronger behind it", () => {
@@ -346,10 +351,10 @@ describe("wind lines", () => {
     return seen.size
   }
 
-  it("come through every so often, more on shifty days", () => {
-    const shifty = generateMap({ ...defaultConfig(61), islands: "none", shifts: "shifty" })
-    const steady = generateMap({ ...shifty.config, shifts: "steady" })
-    // About one every 10 turns when shifty, every 16 when steady.
+  it("come through every so often, more in worse weather", () => {
+    const shifty = generateMap({ ...defaultConfig(61), islands: "none", weather: "unsettled" })
+    const steady = generateMap({ ...shifty.config, weather: "settled" })
+    // About one every 10 turns when unsettled, every 24 when settled.
     expect(distinct(shifty, 400)).toBeGreaterThan(25)
     expect(distinct(shifty, 400)).toBeLessThan(60)
     expect(distinct(steady, 400)).toBeLessThan(distinct(shifty, 400))
@@ -363,7 +368,7 @@ describe("wind lines", () => {
   it("shift the wind inside the band for several turns, then let it go back", () => {
     let checked = 0
     for (const seed of [61, 62, 63, 64, 65, 66]) {
-      const m = generateMap({ ...defaultConfig(seed), islands: "none", shifts: "steady" })
+      const m = generateMap({ ...defaultConfig(seed), islands: "none", weather: "changeable" })
       // A patch in the middle of the map, so puffs and eddies average out.
       const patch: { x: number; y: number }[] = []
       const cx = Math.round((m.width - 1) / 2)
@@ -418,8 +423,8 @@ describe("behind a front", () => {
   const pct = (xs: number[], q: number) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length * q)]
 
   it.each([52, 7, 19])("is rough for several turns, then settles (seed %i)", (seed) => {
-    const settled = generateMap({ ...defaultConfig(seed), islands: "none", shifts: "steady" })
-    const m = generateMap({ ...settled.config, frontChance: 100 })
+    const settled = generateMap({ ...defaultConfig(seed), islands: "none", weather: "settled" })
+    const m = generateMap({ ...settled.config, front: true })
     const f = frontOf(m)!
     // Several turns of it for a boat that stays put.
     expect(f.depth / f.speed).toBeGreaterThan(2.5)
@@ -491,7 +496,7 @@ describe("AI race", () => {
   }, 60_000)
 
   it("finishes a race when a front comes through", () => {
-    const cfg: RaceConfig = { ...defaultConfig(13), laps: 1, frontChance: 100 }
+    const cfg: RaceConfig = { ...defaultConfig(13), laps: 1, front: true }
     const { state, map } = runRace(cfg, [
       { name: "Hard", color: "#000", controller: "ai", difficulty: "hard", boat: "j-109" },
       { name: "Easy", color: "#222", controller: "ai", difficulty: "easy", boat: "x-35" },
