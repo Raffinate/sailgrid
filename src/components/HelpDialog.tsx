@@ -67,6 +67,11 @@ export function HelpDialog(props: { open: boolean; onOpenChange: (open: boolean)
             speeds up between islands and round headlands, and it bends along a shore it blows onto.
           </p>
           <p class="mt-2">
+            A few times a race a new breeze fills in: a band of darker (or lighter) water moving down the course. Once
+            its edge reaches you the wind has shifted 10–25° and is usually stronger, and it stays that way for several
+            turns before the old breeze comes back. Spot it upwind and set up for it.
+          </p>
+          <p class="mt-2">
             Small eddies, a few hundred metres across, drift downwind with the breeze for several minutes and fade out.
             The air turns round each one, so on one side of an eddy the wind is stronger and on the other lighter, and its
             direction swings as you sail past. A race can have a front (the race description gives the chance

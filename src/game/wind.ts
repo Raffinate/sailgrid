@@ -16,6 +16,9 @@ import { CELLS_PER_KNOT } from "./units.ts"
  * - Eddies: small whirls of air, a few hundred metres across, that form, drift downwind with the breeze
  *   for several minutes, and fade. On one side of an eddy the wind is stronger and on the other lighter,
  *   and it swings in direction round it.
+ * - Wind lines: a new breeze filling in. A band of changed wind moves down the course; behind its leading
+ *   edge the wind has shifted 10–25° either way and is usually stronger (sometimes lighter), and it stays
+ *   that way for several turns before the old breeze returns. A few come through every race.
  * - A front (when the race has one): a line that sweeps across the course partway through. Ahead of it
  *   the wind backs and eases a little; on the line there's a gusty squall; then a kilometre or two of rough,
  *   chaotic air, full of eddies, where the direction jumps and gusts come and go every turn; and behind
@@ -184,6 +187,87 @@ export function behindFront(m: GameMap, f: Front, turn: number, p: Pt): number {
   return f.speed * (turn - f.arrival) - ((p.x - center.x) * n.x + (p.y - center.y) * n.y)
 }
 
+// ---- Wind lines --------------------------------------------------------------------------------
+
+/** A band of changed wind moving down the course: a new breeze filling in, for a while. */
+export interface WindLine {
+  /** Turn at which its leading edge crosses the middle of the map (fractional). */
+  center: number
+  /** Compass direction it moves toward. */
+  toward: number
+  /** Cells per turn. */
+  speed: number
+  /** How far the wind shifts inside it, degrees: positive veers, negative backs. */
+  shift: number
+  /** Wind strength inside it, as a share of the wind outside. */
+  gain: number
+  /** How deep the band is, cells: a boat that stays put is in it for `depth / speed` turns. */
+  depth: number
+}
+
+/** Width of the leading edge, where the change comes in, cells. */
+const LINE_EDGE = 5
+
+/** Probe this many turns either side for lines whose band could be on the map. */
+const LINE_WINDOW = 45
+
+const lineCache = new WeakMap<GameMap, Map<number, WindLine | null>>()
+
+/** The wind line whose leading edge crosses the middle of the map in turn slot `k`, if there is one. */
+function lineFor(m: GameMap, k: number): WindLine | null {
+  let perMap = lineCache.get(m)
+  if (!perMap) lineCache.set(m, (perMap = new Map()))
+  const hit = perMap.get(k)
+  if (hit !== undefined) return hit
+  const r = mulberry32(hash(m.config.seed, 41, k + 1000))
+  // On average one every 10 turns on shifty days, every 16 on steady ones.
+  const rate = m.config.shifts === "shifty" ? 1 / 10 : 1 / 16
+  let line: WindLine | null = null
+  if (r() < rate) {
+    const speed = Math.max(3, (0.6 + r() * 0.3) * m.windSpeed * CELLS_PER_KNOT)
+    const stronger = r() < 0.75
+    line = {
+      center: k + r(),
+      toward: norm(m.windFrom + 180 + (r() - 0.5) * 40),
+      speed,
+      shift: (r() < 0.55 ? 1 : -1) * (10 + r() * 15),
+      gain: stronger ? 1.15 + r() * 0.25 : 0.75 + r() * 0.15,
+      depth: (3 + r() * 5) * speed,
+    }
+  }
+  perMap.set(k, line)
+  return line
+}
+
+/** The wind lines that are on the map this turn (or about to come on). */
+export function windLinesAt(m: GameMap, turn: number): WindLine[] {
+  const reach = Math.hypot(m.width, m.height) / 2
+  const out: WindLine[] = []
+  for (let k = Math.floor(turn - LINE_WINDOW); k <= Math.ceil(turn + LINE_WINDOW); k++) {
+    const l = lineFor(m, k)
+    if (!l) continue
+    const lead = l.speed * (turn - l.center)
+    if (lead + LINE_EDGE > -reach && lead - l.depth * 1.2 < reach) out.push(l)
+  }
+  return out
+}
+
+/**
+ * How much of a wind line's change a point gets, 0–1, `d` cells behind its leading edge: it comes in over
+ * a few cells at the edge, holds through the band, and fades out gently at the back.
+ */
+export function windLineWeight(l: WindLine, d: number): number {
+  const into = smoothstep(0.5 + d / LINE_EDGE)
+  const trail = 0.3 * l.depth
+  return into * (1 - smoothstep(0.5 + (d - l.depth) / trail))
+}
+
+/** How far behind a wind line's leading edge a point is this turn, cells. */
+export function behindLine(m: GameMap, l: WindLine, turn: number, p: Pt): number {
+  const n = dirVec(l.toward)
+  return l.speed * (turn - l.center) - ((p.x - (m.width - 1) / 2) * n.x + (p.y - (m.height - 1) / 2) * n.y)
+}
+
 // ---- Eddies ------------------------------------------------------------------------------------
 
 const EDDY_MAX_LIFE = 14
@@ -307,6 +391,8 @@ function compute(m: GameMap, turn: number): WindField {
   const sChaos = hash(seed, 11)
   const sGust = hash(seed, 12)
   const eddies = eddiesAt(m, turn)
+  const lines = windLinesAt(m, turn)
+  const sEdge = hash(seed, 13)
 
   const baseFromAt = (t: number) =>
     m.windFrom +
@@ -372,6 +458,17 @@ function compute(m: GameMap, turn: number): WindField {
           w *= 1 + rough * clamp(1.1 * fbm3(sGust, x / 5, y / 5, turn * 1.3, 2), -0.35, 0.45)
         }
         gusty = 1 + 0.5 * behind
+      }
+
+      // Wind lines: inside each band the wind is shifted and stronger (or lighter), with a little
+      // gustiness right at the leading edge.
+      for (const l of lines) {
+        const d = behindLine(m, l, turn, { x, y })
+        const k = windLineWeight(l, d)
+        if (k < 0.002) continue
+        const edge = Math.exp(-((d - 2) ** 2) / 8)
+        f += l.shift * k + 6 * edge * fbm3(sEdge, x / 4, y / 4, turn, 1)
+        w *= (1 + (l.gain - 1) * k) * (1 + 0.12 * edge)
       }
 
       // Puffs: a pattern moving downwind with the air, stretched along the wind, slowly changing.

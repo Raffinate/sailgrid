@@ -84,13 +84,14 @@ export function randomConfig(rnd: () => number = Math.random): RaceConfig {
     ),
     windSpeed: 5 + Math.floor(rnd() * 18),
     shifts: rnd() < 0.4 ? "steady" : "shifty",
+    // A front is a rare event in a real race: about one random race in ten gets one.
     frontChance: weighted<FrontChance>(
       [
-        [0, 4],
-        [25, 3],
-        [50, 2],
-        [75, 1],
-        [100, 1],
+        [0, 12],
+        [25, 2],
+        [50, 1],
+        [75, 0.5],
+        [100, 0.5],
       ],
       rnd(),
     ),

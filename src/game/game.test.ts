@@ -7,7 +7,7 @@ import { defaultConfig, describeConfig, type GameMap, generateMap, isWater, MAP_
 import { mulberry32 } from "./rng.ts"
 import { crossGates, type Entrant, newRace, type RaceState, resolveTurn, rightOfWay, standings } from "./race.ts"
 import { BOAT_LENGTH_METERS, CELL_METERS, CELLS_PER_KNOT } from "./units.ts"
-import { behindFront, CARRY, eddiesAt, frontOf, frontRoughness, windAt, windField } from "./wind.ts"
+import { behindFront, behindLine, CARRY, eddiesAt, frontOf, frontRoughness, windAt, windField, windLinesAt, windLineWeight } from "./wind.ts"
 
 const first = boatClass("j-35")
 const polar = first.polar
@@ -337,6 +337,64 @@ describe("front", () => {
     expect(mean(late, (a, b) => a / b, "speed")).toBeGreaterThan(f.gain - 0.15)
     expect(windField(m, late).baseFrom).toBeCloseTo(((windField(settled, late).baseFrom + f.shift) % 360), -1)
   })
+})
+
+describe("wind lines", () => {
+  const distinct = (m: GameMap, turns: number) => {
+    const seen = new Set<number>()
+    for (let t = 0; t < turns; t += 5) for (const l of windLinesAt(m, t)) seen.add(l.center)
+    return seen.size
+  }
+
+  it("come through every so often, more on shifty days", () => {
+    const shifty = generateMap({ ...defaultConfig(61), islands: "none", shifts: "shifty" })
+    const steady = generateMap({ ...shifty.config, shifts: "steady" })
+    // About one every 10 turns when shifty, every 16 when steady.
+    expect(distinct(shifty, 400)).toBeGreaterThan(25)
+    expect(distinct(shifty, 400)).toBeLessThan(60)
+    expect(distinct(steady, 400)).toBeLessThan(distinct(shifty, 400))
+    for (const l of windLinesAt(shifty, 50)) {
+      expect(Math.abs(l.shift)).toBeGreaterThanOrEqual(10)
+      expect(Math.abs(l.shift)).toBeLessThanOrEqual(25)
+      expect(l.depth / l.speed).toBeGreaterThanOrEqual(3)
+    }
+  })
+
+  it("shift the wind inside the band for several turns, then let it go back", () => {
+    let checked = 0
+    for (const seed of [61, 62, 63, 64, 65, 66]) {
+      const m = generateMap({ ...defaultConfig(seed), islands: "none", shifts: "steady" })
+      // A patch in the middle of the map, so puffs and eddies average out.
+      const patch: { x: number; y: number }[] = []
+      const cx = Math.round((m.width - 1) / 2)
+      const cy = Math.round((m.height - 1) / 2)
+      for (let y = cy - 10; y <= cy + 10; y += 2) for (let x = cx - 10; x <= cx + 10; x += 2) patch.push({ x, y })
+      const seen = new Set<number>()
+      for (let t = 20; t < 200; t++)
+        for (const l of windLinesAt(m, t)) {
+          if (seen.has(l.center)) continue
+          seen.add(l.center)
+          // Turns when the whole patch is well inside this line, or clear of it, with no other line about.
+          const inside: number[] = []
+          const outside: number[] = []
+          for (let u = Math.floor(l.center - 15); u < l.center + l.depth / l.speed + 15; u++) {
+            const others = windLinesAt(m, u).filter((o) => o !== l)
+            if (patch.some((p) => others.some((o) => windLineWeight(o, behindLine(m, o, u, p)) > 0.05))) continue
+            const k = patch.map((p) => windLineWeight(l, behindLine(m, l, u, p)))
+            const f = windField(m, u)
+            const dev = patch.reduce((sum, p) => sum + angleDiff(f.from[p.y * m.width + p.x], f.baseFrom), 0) / patch.length
+            if (k.every((x) => x > 0.9)) inside.push(dev)
+            else if (k.every((x) => x < 0.05)) outside.push(dev)
+          }
+          if (inside.length < 2 || outside.length < 2) continue
+          const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length
+          expect(mean(inside) - mean(outside), `seed ${seed}, line at ${l.center.toFixed(1)}`).toBeGreaterThan(l.shift - 7)
+          expect(mean(inside) - mean(outside), `seed ${seed}, line at ${l.center.toFixed(1)}`).toBeLessThan(l.shift + 7)
+          checked++
+        }
+    }
+    expect(checked).toBeGreaterThan(3)
+  }, 60_000)
 })
 
 describe("behind a front", () => {

@@ -44,11 +44,16 @@ that suits the day's wind and course, and then the best route round it.
   - puffs and lulls carried downwind at about 70% of the wind speed, stretched along the wind and changing
     over a few minutes, with puffs veering and lulls backing (northern hemisphere);
   - a slow, large-scale bias that favours one part of the course;
+  - wind lines: a new breeze filling in. A band of changed wind moves down the course; behind its leading
+    edge the wind has shifted 10–25° either way and is usually 15–40% stronger (sometimes lighter), for 3–8
+    turns at any one spot, before the old breeze returns. About one every 10 turns on shifty days, every 16
+    on steady ones;
   - eddies, a few hundred metres across, that drift downwind with the air for 6–14 turns and fade; the air
     turns round each one, so the wind is stronger on one side, lighter on the other, and swings in direction;
   - wind shadow behind islands (longer behind higher land, and gusty), wind speeding up between islands and
     round headlands, and wind bending along a shore it blows onto;
-  - possibly a front: a line that sweeps across the course partway through the race. The **Chance of a
+  - possibly a front: a line that sweeps across the course partway through the race (random races get one
+    about one time in ten). The **Chance of a
     front** setting is the forecast (none, 25%, 50%, 75% or certain); the seed decides whether it comes. It's
     timed from a rough estimate of the race's length. Ahead of it the wind backs and eases, on the line
     there's a squall, then 1.7–3 km of rough air (several turns of it) full of eddies, where the direction
