@@ -337,10 +337,10 @@ export function drawBoat(
   b: { color: string; name: string; heading: number },
   at: Pt,
   windFrom: number,
-  opts: { active?: boolean; faded?: boolean; showName?: boolean },
+  opts: { active?: boolean; faded?: boolean },
 ) {
   const p = toPx(v, at)
-  const L = Math.max(13, Math.min(24, v.cell * 2))
+  const L = boatLength(v)
   const f = dirVec(b.heading)
   const r = { x: -f.y, y: f.x }
   const pt = (fw: number, rt: number) => ({ x: p.x + (f.x * fw + r.x * rt) * L, y: p.y + (f.y * fw + r.y * rt) * L })
@@ -380,7 +380,19 @@ export function drawBoat(
   ctx.beginPath()
   ctx.arc(mast.x, mast.y, 1.6, 0, Math.PI * 2)
   ctx.fill()
-  if (opts.showName) label(ctx, b.name, { x: p.x, y: p.y + L * 0.75 + 7 }, c, 11)
+  ctx.globalAlpha = 1
+}
+
+const boatLength = (v: Viewport) => Math.max(13, Math.min(24, v.cell * 2))
+
+/**
+ * A boat's name, just below it. Semi-transparent, and drawn before the boats and the planned move, so a
+ * name never hides a boat and the wind and tracks show through it.
+ */
+export function drawBoatName(ctx: CanvasRenderingContext2D, v: Viewport, c: Palette, name: string, at: Pt, faded: boolean) {
+  const p = toPx(v, at)
+  ctx.globalAlpha = faded ? 0.3 : 0.6
+  label(ctx, name, { x: p.x, y: p.y + boatLength(v) * 0.75 + 7 }, c, 11)
   ctx.globalAlpha = 1
 }
 

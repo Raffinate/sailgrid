@@ -6,6 +6,7 @@ import { type RaceState, racing } from "../game/race.ts"
 import { windAt, windField } from "../game/wind.ts"
 import {
   drawBoat,
+  drawBoatName,
   drawCourse,
   drawPreview,
   drawStatic,
@@ -33,6 +34,7 @@ interface BoardProps {
   focus: number | null
   preview: Preview | null
   showWind: boolean
+  showNames: boolean
   onAim?: (heading: number) => void
 }
 
@@ -46,6 +48,7 @@ interface Frame {
   focus: number | null
   preview: Preview | null
   showWind: boolean
+  showNames: boolean
 }
 
 /** The chart, drawn on a canvas. Click or drag on it to aim the active boat. */
@@ -128,11 +131,12 @@ export function Board(props: BoardProps) {
       const w = where(b.id)
       drawTrack(ctx, v, b, w.upTo, w.tail, !racing(b))
     }
+    // Names under the planned move and the boats, so they never hide either.
+    if (frame.showNames && v.cell >= 5) for (const b of state.boats) drawBoatName(ctx, v, c, b.name, where(b.id).at, !racing(b))
     if (frame.preview && t >= 1 && frame.active !== null) {
       const b = state.boats[frame.active]
       drawPreview(ctx, v, c, b.color, frame.preview.move, frame.preview.stop, frame.preview.aground)
     }
-    const showNames = v.cell >= 5
     for (const b of state.boats) {
       const w = where(b.id)
       const plan = frame.active === b.id && frame.preview && t >= 1 ? frame.preview.move : null
@@ -143,7 +147,7 @@ export function Board(props: BoardProps) {
         { color: b.color, name: b.name, heading: plan?.heading ?? w.heading ?? b.heading },
         w.at,
         windAt(field, b.pos).from,
-        { active: frame.active === b.id, faded: !racing(b), showName: showNames },
+        { active: frame.active === b.id, faded: !racing(b) },
       )
     }
     if (t < 1) raf = requestAnimationFrame(draw)
@@ -162,6 +166,7 @@ export function Board(props: BoardProps) {
       focus: props.focus,
       preview: props.preview,
       showWind: props.showWind,
+      showNames: props.showNames,
     }),
     (f) => {
       frame = f

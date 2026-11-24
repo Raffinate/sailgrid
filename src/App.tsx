@@ -64,6 +64,7 @@ export function App() {
   const [snap, setSnap] = createSignal<Snapshot>(IDLE_SNAPSHOT)
   const [helpOpen, setHelpOpen] = createSignal(false)
   const [showWind, setShowWind] = createSignal(true)
+  const [showNames, setShowNames] = createSignal(true)
   const session = new Session((s) => setSnap(s))
 
   createEffect(
@@ -298,6 +299,7 @@ export function App() {
                   focus={activeBoat()?.id ?? snap().mine[0] ?? null}
                   preview={preview() ? { move: preview()!.move, stop: preview()!.stop, aground: preview()!.aground } : null}
                   showWind={showWind()}
+                  showNames={showNames()}
                   onAim={(heading) => setPlan({ heading })}
                 />
               )}
@@ -338,6 +340,10 @@ export function App() {
               <label class="inline-flex cursor-pointer items-center gap-1.5">
                 <input type="checkbox" checked={showWind()} onChange={(e) => setShowWind(e.currentTarget.checked)} class="accent-current" />
                 Show wind
+              </label>
+              <label class="inline-flex cursor-pointer items-center gap-1.5">
+                <input type="checkbox" checked={showNames()} onChange={(e) => setShowNames(e.currentTarget.checked)} class="accent-current" />
+                Show names
               </label>
               <span>Darker water: puffs. Lighter: lulls.</span>
               <Show when={snap().state}>
