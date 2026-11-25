@@ -147,7 +147,9 @@ export function crossGates(map: GameMap, next: number, unwind: number, from: Pt,
         next++
         if (g.kind === "finish") return { next, unwind: 0, finishedAt: tAbs }
       }
-    } else unwind++
+    } else if (g.kind !== "start") unwind++
+    // Back over the start line the wrong way is a boat that slipped round its end returning to the
+    // pre-start side, where it belongs: nothing to undo, its next crossing starts it.
     t0 = tAbs + 1e-6
     if (t0 >= 1) break
   }

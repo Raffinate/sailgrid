@@ -472,6 +472,16 @@ describe("course progress", () => {
     expect(crossGates(m, 1, 0, at(2, -3), at(2, 3))).toMatchObject({ next: 1, unwind: 1 })
   })
 
+  it("starts a boat that slipped round the end of the line once it dips back and crosses", () => {
+    const [a, b] = m.startLine
+    const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
+    const up = dirVec(m.windFrom)
+    const at = (u: number) => ({ x: mid.x + up.x * u, y: mid.y + up.y * u })
+    // From the course side back to the pre-start side: nothing gained, nothing owed.
+    expect(crossGates(m, 0, 0, at(3), at(-3))).toMatchObject({ next: 0, unwind: 0 })
+    expect(crossGatesPath(m, 0, 0, [at(3), at(-3), at(3)]).next).toBe(1)
+  })
+
   it("takes the rounding back when a boat crosses the ray and turns back", () => {
     const mark = m.gates[1].mark!
     const up = dirVec(m.windFrom)
