@@ -152,10 +152,15 @@ export function App() {
   })
 
   // The plan being set up for the active boat: starts from its current heading and sheet each turn.
-  const basePlan = createMemo(() => {
-    const b = activeBoat()
-    return b ? { heading: b.heading, key: `${snap().state?.turn}:${b.id}` } : null
-  })
+  // Compared by turn and boat, not by object: a guest gets a fresh copy of the race whenever another
+  // sailor submits, and that mustn't throw away the heading being set up.
+  const basePlan = createMemo(
+    () => {
+      const b = activeBoat()
+      return b ? { heading: b.heading, key: `${snap().state?.turn}:${b.id}` } : null
+    },
+    { equals: (a, b) => a?.key === b?.key },
+  )
   const [plan, setPlan] = createSignal<Plan>(() => {
     const b = basePlan()
     return { heading: b?.heading ?? 0 }
