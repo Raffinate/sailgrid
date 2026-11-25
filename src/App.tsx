@@ -72,6 +72,16 @@ export function App() {
   // Debugging from the browser console: `copy(sailgrid.trace())` copies the race so far as JSON.
   ;(globalThis as { sailgrid?: unknown }).sailgrid = { trace: () => session.trace() }
 
+  /** Saves the finished race (the same JSON as `sailgrid.trace()`) as a file. */
+  const downloadRace = () => {
+    const url = URL.createObjectURL(new Blob([session.trace()], { type: "application/json" }))
+    const a = document.createElement("a")
+    a.href = url
+    a.download = `sailgrid-race-${snap().config?.seed ?? "unknown"}.json`
+    a.click()
+    setTimeout(() => URL.revokeObjectURL(url))
+  }
+
   createEffect(
     () => ({ config: config(), players: players() }),
     (s) => saveSetup(s.config, s.players),
@@ -510,6 +520,11 @@ export function App() {
               >
                 {snap().mode === "guest" ? "Leave race" : snap().state!.over ? "New race" : "Abandon race"}
               </Button>
+              <Show when={snap().state!.over}>
+                <Button class={buttonClass.ghost} onClick={downloadRace} data-ph-capture-attribute-action="download-race">
+                  Download race JSON
+                </Button>
+              </Show>
             </div>
           </Show>
         </aside>
