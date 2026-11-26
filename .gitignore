@@ -218,3 +218,6 @@ $RECYCLE.BIN/
 
 # ORC certificate downloads (scripts/fetch-boats.ts)
 .orc-cache
+
+# Race JSON downloaded from the game, kept locally for analysis
+replays/
