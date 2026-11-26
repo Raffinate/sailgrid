@@ -1,5 +1,5 @@
 import { add, bearing, clamp, cross, dirVec, dist, len, norm360, type Pt, roundPt, scale, sub } from "./geom.ts"
-import { fbm, hash, mulberry32 } from "./rng.ts"
+import { fbm, hash, mulberry32, randomSeed, textHash } from "./rng.ts"
 
 export type MapSize = "small" | "medium" | "large"
 export type IslandDensity = "none" | "few" | "many"
@@ -13,7 +13,8 @@ export type Weather = "settled" | "changeable" | "unsettled" | "stormy"
 export const WEATHERS: Weather[] = ["settled", "changeable", "unsettled", "stormy"]
 
 export interface RaceConfig {
-  seed: number
+  /** The map's name: any text (see mapSeed), or `prefix:name` for a special map (see seedError). */
+  seed: string
   size: MapSize
   islands: IslandDensity
   course: CourseKind
@@ -29,15 +30,51 @@ export interface RaceConfig {
   front?: boolean
 }
 
-/**
- * Map number −1: a test chart. Open water, and the wind always from due east, lightest along the north
- * edge and strongest along the south, steadily in between, with no shifts, puffs, lines, eddies or fronts.
- */
-export const TEST_SEED = -1
-export const isTestMap = (c: RaceConfig) => c.seed === TEST_SEED
+/** Longest map name, characters. */
+export const MAX_SEED_LENGTH = 40
 
-export const defaultConfig = (seed: number): RaceConfig => ({
-  seed,
+/** How map names compare: upper or lower case doesn't matter. */
+export const normalizeSeed = (text: string) => text.trim().toLowerCase()
+
+/** What a map name may hold, as it's typed: English letters and digits, and ":" for a special map. */
+export const SEED_CHARS = /^[a-z0-9:]*$/i
+
+/**
+ * A dev map for trying out the wind display: open water, and the wind always from due east, lightest
+ * along the north edge and strongest along the south, steadily in between, with no shifts, puffs, lines,
+ * eddies or fronts.
+ */
+export const WIND_GRADIENT_MAP = "dev:windgradient"
+export const isWindGradientMap = (c: RaceConfig) => normalizeSeed(c.seed) === WIND_GRADIENT_MAP
+
+/** `seed:<whole number>` hands that number straight to the generator (tests use it, and old race files). */
+const RAW_SEED = /^seed:(\d{1,10})$/
+
+/** Whether text will do as a map name: letters, digits and colons, at least one, up to MAX_SEED_LENGTH. */
+export const isSeed = (text: string) => text.length > 0 && text.length <= MAX_SEED_LENGTH && SEED_CHARS.test(text)
+
+const seedCache = new Map<string, number>()
+
+/**
+ * The generator's number for a race's map: a fixed hash of its name, so a name is the same map everywhere.
+ * A name with a colon is `prefix:name`. The special maps are WIND_GRADIENT_MAP and `seed:<number>`; any other prefix
+ * is cut off, so `foo:sunnybay` is the same map as `sunnybay`.
+ */
+export function mapSeed(c: RaceConfig): number {
+  const s = normalizeSeed(c.seed)
+  let n = seedCache.get(s)
+  if (n === undefined) {
+    const raw = RAW_SEED.exec(s)
+    const colon = s.indexOf(":")
+    n = raw ? Number(raw[1]) >>> 0 : s === WIND_GRADIENT_MAP || colon < 0 ? textHash(s) : textHash(s.slice(colon + 1))
+    seedCache.set(s, n)
+  }
+  return n
+}
+
+export const defaultConfig = (seed: string | number): RaceConfig => ({
+  // A number here is the generator's own number (tests), as `seed:<number>`.
+  seed: typeof seed === "number" ? `seed:${seed}` : seed,
   size: "medium",
   islands: "few",
   course: "windward-leeward",
@@ -90,7 +127,7 @@ export function randomConfig(rnd: () => number = Math.random): RaceConfig {
     rnd(),
   )
   return {
-    seed: Math.floor(rnd() * 1_000_000),
+    seed: randomSeed(rnd),
     course,
     laps: weighted(
       [
@@ -128,9 +165,9 @@ const COURSE_LABEL: Record<CourseKind, string> = {
 
 /** One line on what a race will be like: "Triangle · 2 laps · 16 kn, unsettled · few islands · medium map". */
 export function describeConfig(c: RaceConfig): string {
-  if (isTestMap(c))
+  if (isWindGradientMap(c))
     return [
-      "Test map",
+      "Wind gradient (dev map)",
       COURSE_LABEL[c.course] + (c.course === "islands" ? "" : ` · ${c.laps} ${c.laps === 1 ? "lap" : "laps"}`),
       "east wind, light in the north to strong in the south",
       `${c.size} map`,
@@ -409,7 +446,7 @@ function islandField(cfg: RaceConfig, width: number, height: number, attempt: nu
   const h = new Float32Array(width * height)
   const threshold = cfg.islands === "many" ? 0.12 : 0.3
   if (cfg.islands === "none") return h.fill(-1)
-  const noiseSeed = hash(cfg.seed, 17, attempt)
+  const noiseSeed = hash(mapSeed(cfg), 17, attempt)
   const featureScale = 20
   for (let y = 0; y < height; y++)
     for (let x = 0; x < width; x++) h[y * width + x] = fbm(noiseSeed, x / featureScale, y / featureScale, 4) - threshold
@@ -434,20 +471,21 @@ function linePoints(a: Pt, b: Pt, step = 2): Pt[] {
 }
 
 export function generateMap(cfg: RaceConfig): GameMap {
-  const test = isTestMap(cfg)
+  const test = isWindGradientMap(cfg)
   if (test) cfg = { ...cfg, islands: "none" }
   const { width, height } = MAP_SIZES[cfg.size]
-  const rnd = mulberry32(hash(cfg.seed, 1))
+  const seed = mapSeed(cfg)
+  const rnd = mulberry32(hash(seed, 1))
   const windFrom = test ? 90 : Math.round(rnd() * 360) % 360
   for (let attempt = 0; attempt < 16; attempt++) {
     const density = attempt < 15 ? cfg.islands : "none"
     const h = islandField({ ...cfg, islands: density }, width, height, attempt)
     const layout =
       cfg.course === "islands"
-        ? islandsCourse(width, height, windFrom, h, mulberry32(hash(cfg.seed, 2, attempt)))
+        ? islandsCourse(width, height, windFrom, h, mulberry32(hash(seed, 2, attempt)))
         : cfg.course === "triangle"
-          ? triangle(cfg, width, height, windFrom, mulberry32(hash(cfg.seed, 2)))
-          : windwardLeeward(cfg, width, height, windFrom, mulberry32(hash(cfg.seed, 2)))
+          ? triangle(cfg, width, height, windFrom, mulberry32(hash(seed, 2)))
+          : windwardLeeward(cfg, width, height, windFrom, mulberry32(hash(seed, 2)))
     if (!layout) continue
     const [la, lb] = layout.start
     const startCenter = scale(add(la, lb), 0.5)

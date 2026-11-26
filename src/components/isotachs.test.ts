@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest"
-import { defaultConfig, generateMap, TEST_SEED } from "../game/map.ts"
+import { defaultConfig, generateMap, WIND_GRADIENT_MAP } from "../game/map.ts"
 import { WIND_MAX, WIND_MIN, windField } from "../game/wind.ts"
 import { isotachLevels, isotachs } from "./isotachs.ts"
 
 describe("isotachs", () => {
-  it("runs straight across the test map, where the wind rises evenly from north to south", () => {
-    const m = generateMap(defaultConfig(TEST_SEED))
+  it("runs straight across the wind gradient dev map, where the wind rises evenly from north to south", () => {
+    const m = generateMap(defaultConfig(WIND_GRADIENT_MAP))
     const f = windField(m, 0)
     for (const { level, segments } of isotachs(m, f.speed, [5, 10, 15, 20, 25, 30, 35])) {
       // Where the speed is `level`: WIND_MIN on row 0 rising to WIND_MAX on the last row.
@@ -37,9 +37,9 @@ describe("isotachs", () => {
   })
 
   it("goes through the 20th, 50th and 80th percentile of the wind, in whole knots", () => {
-    const m = generateMap(defaultConfig(TEST_SEED))
+    const m = generateMap(defaultConfig(WIND_GRADIENT_MAP))
     const f = windField(m, 0)
-    // On the test map the wind rises evenly down the rows, so the percentiles are a fifth, half and four
+    // On the wind gradient dev map the wind rises evenly down the rows, so the percentiles are a fifth, half and four
     // fifths of the way from WIND_MIN to WIND_MAX.
     const at = (q: number) => Math.round(WIND_MIN + (WIND_MAX - WIND_MIN) * q)
     expect(isotachLevels(m, f.speed)).toEqual([at(0.2), at(0.5), at(0.8)])

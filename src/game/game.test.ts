@@ -3,8 +3,8 @@ import { chooseMove, route, timeToFinish } from "./ai.ts"
 import { maneuver, moveAt, SAMPLE, simulate, tackOf } from "./boat.ts"
 import { boatClass, FLEET, windBand } from "./fleet.ts"
 import { angleDiff, bearing, closestApproach, dirVec, segmentCross } from "./geom.ts"
-import { defaultConfig, describeConfig, type GameMap, generateMap, isWater, MAP_SIZES, type RaceConfig, randomConfig, startingPositions, TEST_SEED, type Weather } from "./map.ts"
-import { mulberry32 } from "./rng.ts"
+import { defaultConfig, describeConfig, type GameMap, generateMap, isSeed, isWindGradientMap, isWater, MAP_SIZES, mapSeed, type RaceConfig, randomConfig, startingPositions, WIND_GRADIENT_MAP, type Weather } from "./map.ts"
+import { mulberry32, randomSeed } from "./rng.ts"
 import { crossGates, crossGatesPath, type Entrant, newRace, type RaceState, resolveTurn, rightOfWay, standings } from "./race.ts"
 import { BOAT_LENGTH_METERS, CELL_METERS, CELLS_PER_KNOT, TURN_SECONDS } from "./units.ts"
 import { behindFront, behindLine, CARRY, eddiesAt, frontOf, frontRoughness, windAt, windField, windLinesAt, windLineWeight, windSampler, WIND_MAX, WIND_MIN } from "./wind.ts"
@@ -524,7 +524,7 @@ describe("course progress", () => {
 
 function runRace(cfg: RaceConfig, entrants: Entrant[]): { state: RaceState; map: GameMap } {
   const map = generateMap(cfg)
-  let state = newRace(map, entrants, 250, mulberry32(cfg.seed))
+  let state = newRace(map, entrants, 250, mulberry32(mapSeed(cfg)))
   while (!state.over) {
     const plans = new Map(state.boats.map((b) => [b.id, chooseMove(map, state, b.id)]))
     state = resolveTurn(map, state, plans)
@@ -558,7 +558,7 @@ describe("AI race", () => {
 
   it("goes all the way round a mark rather than touching its ray and turning back", () => {
     // A race where the boats used to cross Mark 1's ray south-east of it and head back north to Mark 2.
-    const cfg: RaceConfig = { seed: 682227, course: "triangle", laps: 1, size: "medium", islands: "many", weather: "stormy", windSpeed: 16 }
+    const cfg: RaceConfig = { seed: "seed:682227", course: "triangle", laps: 1, size: "medium", islands: "many", weather: "stormy", windSpeed: 16 }
     const { state } = runRace(cfg, [
       { name: "Hard", color: "#000", controller: "ai", difficulty: "hard", boat: "j-109" },
       { name: "Easy", color: "#222", controller: "ai", difficulty: "easy", boat: "x-35" },
@@ -575,10 +575,52 @@ describe("AI race", () => {
   }, 60_000)
 })
 
-describe("test map", () => {
+describe("map names", () => {
+  const seedOf = (seed: string) => mapSeed({ ...defaultConfig(0), seed })
+
+  it("gives the same map for the same name, whatever the case", () => {
+    expect(seedOf("SunnyBay")).toBe(seedOf("sunnybay"))
+    expect(seedOf("sunnybay")).not.toBe(seedOf("sunnybay2"))
+    expect(seedOf("631875")).not.toBe(631875)
+  })
+
+  it("cuts off a prefix it doesn't know, and keeps its special maps", () => {
+    expect(seedOf("foo:SunnyBay")).toBe(seedOf("sunnybay"))
+    expect(seedOf("dev:nope")).toBe(seedOf("nope"))
+    expect(seedOf("seed:682227")).toBe(682227)
+    expect(isWindGradientMap({ ...defaultConfig(0), seed: "Dev:WindGradient" })).toBe(true)
+    expect(seedOf(WIND_GRADIENT_MAP)).not.toBe(seedOf("windgradient"))
+  })
+
+  it("rolls new maps as seed:<random 32-bit number>", () => {
+    const r = mulberry32(9)
+    for (let i = 0; i < 200; i++) {
+      const seed = randomSeed(r)
+      expect(seed).toMatch(/^seed:\d{1,10}$/)
+      expect(isSeed(seed)).toBe(true)
+      const n = Number(seed.slice(5))
+      expect(n).toBeLessThan(2 ** 32)
+      expect(seedOf(seed)).toBe(n)
+    }
+    expect(randomSeed(() => 0.999999999999)).toBe(`seed:${2 ** 32 - 1}`)
+  })
+
+  it("takes English letters, digits and colons, one to 40 of them", () => {
+    expect(isSeed("a")).toBe(true)
+    expect(isSeed("Dev:WindGradient42")).toBe(true)
+    expect(isSeed("")).toBe(false)
+    expect(isSeed("sunny bay")).toBe(false)
+    expect(isSeed("sunny-bay")).toBe(false)
+    expect(isSeed("bahía")).toBe(false)
+    expect(isSeed("x".repeat(40))).toBe(true)
+    expect(isSeed("x".repeat(41))).toBe(false)
+  })
+})
+
+describe("wind gradient dev map", () => {
   it("is open water with an east wind, lightest in the north and strongest in the south", () => {
     for (const course of ["windward-leeward", "triangle", "islands"] as const) {
-      const m = generateMap({ ...defaultConfig(TEST_SEED), course, islands: "many", weather: "stormy" })
+      const m = generateMap({ ...defaultConfig(WIND_GRADIENT_MAP), course, islands: "many", weather: "stormy" })
       expect(m.h.every((v) => v <= 0)).toBe(true)
       for (const turn of [0, 13, 40]) {
         const f = windField(m, turn)

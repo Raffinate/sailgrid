@@ -1,5 +1,5 @@
 import { bearing, clamp, dirVec, dot, type Pt } from "./geom.ts"
-import { type GameMap, isTestMap, type Weather } from "./map.ts"
+import { type GameMap, isWindGradientMap, mapSeed, type Weather } from "./map.ts"
 import { fbm3, hash, mulberry32, noise1, valueNoise } from "./rng.ts"
 import { CELLS_PER_KNOT } from "./units.ts"
 
@@ -192,7 +192,7 @@ const INSTABILITY: Record<Weather, Instability> = {
 const instability = (m: GameMap) => INSTABILITY[m.config.weather] ?? INSTABILITY.unsettled
 
 function params(m: GameMap): Params {
-  const r = mulberry32(hash(m.config.seed, 3))
+  const r = mulberry32(hash(mapSeed(m.config), 3))
   const k = instability(m)
   return {
     amp: k.amp,
@@ -238,12 +238,12 @@ export function frontOf(m: GameMap): Front | null {
   const hit = frontCache.get(m)
   if (hit !== undefined) return hit
   // The weather sets the odds; the seed decides whether it comes, so every player gets the same race.
-  const comes = m.config.front ?? mulberry32(hash(m.config.seed, 32))() < instability(m).front
+  const comes = m.config.front ?? mulberry32(hash(mapSeed(m.config), 32))() < instability(m).front
   if (!comes) {
     frontCache.set(m, null)
     return null
   }
-  const r = mulberry32(hash(m.config.seed, 31))
+  const r = mulberry32(hash(mapSeed(m.config), 31))
   const shift = 35 + r() * 35
   const gain = 1.2 + r() * 0.3
   // It comes from roughly where the new wind does, and moves about as fast as that wind.
@@ -314,7 +314,7 @@ function lineFor(m: GameMap, k: number): WindLine | null {
   if (!perMap) lineCache.set(m, (perMap = new Map()))
   const hit = perMap.get(k)
   if (hit !== undefined) return hit
-  const r = mulberry32(hash(m.config.seed, 41, k + 1000))
+  const r = mulberry32(hash(mapSeed(m.config), 41, k + 1000))
   // On average one every 24 turns when settled, down to every 8 when stormy.
   const { lineRate, lineSize } = instability(m)
   let line: WindLine | null = null
@@ -379,7 +379,7 @@ export function eddiesAt(m: GameMap, turn: number): Eddy[] {
   const front = frontOf(m)
   const out: Eddy[] = []
   for (let k = Math.floor(turn - EDDY_MAX_LIFE); k <= turn; k++) {
-    const r = mulberry32(hash(m.config.seed, 21, k + 1000))
+    const r = mulberry32(hash(mapSeed(m.config), 21, k + 1000))
     const count = Math.floor(rate + r())
     for (let j = 0; j < count; j++) {
       const birth = k + r()
@@ -421,7 +421,7 @@ function frontEddies(m: GameMap, f: Front, turn: number): Eddy[] {
   const down = dirVec(m.windFrom + f.shift + 180)
   const out: Eddy[] = []
   for (let k = Math.floor(turn - FRONT_EDDY_LIFE); k <= turn; k++) {
-    const r = mulberry32(hash(m.config.seed, 23, k + 1000))
+    const r = mulberry32(hash(mapSeed(m.config), 23, k + 1000))
     const count = Math.floor(span / 30 + r())
     for (let j = 0; j < count; j++) {
       const birth = k + r()
@@ -471,8 +471,8 @@ const norm = (a: number) => ((a % 360) + 360) % 360
 export const WIND_MIN = 0.5
 export const WIND_MAX = 35
 
-/** The test map's wind: always from due east, WIND_MIN along the north edge rising evenly to WIND_MAX along the south. */
-function testSampler(m: GameMap): { at: (x: number, y: number) => Wind; baseFrom: number; baseSpeed: number } {
+/** The wind gradient dev map's wind: always from due east, WIND_MIN along the north edge rising evenly to WIND_MAX along the south. */
+function windGradientSampler(m: GameMap): { at: (x: number, y: number) => Wind; baseFrom: number; baseSpeed: number } {
   const speedAt = (y: number) => WIND_MIN + ((WIND_MAX - WIND_MIN) * y) / Math.max(1, m.height - 1)
   return { at: (_x, y) => ({ from: 90, speed: speedAt(y) }), baseFrom: 90, baseSpeed: speedAt((m.height - 1) / 2) }
 }
@@ -482,10 +482,10 @@ function testSampler(m: GameMap): { at: (x: number, y: number) => Wind; baseFrom
  * map. Tests that only look at a few places use it directly, which is much quicker than the whole field.
  */
 export function windSampler(m: GameMap, turn: number): { at: (x: number, y: number) => Wind; baseFrom: number; baseSpeed: number } {
-  if (isTestMap(m.config)) return testSampler(m)
+  if (isWindGradientMap(m.config)) return windGradientSampler(m)
   const p = params(m)
   const { width, height } = m
-  const seed = m.config.seed
+  const seed = mapSeed(m.config)
   const sWander = hash(seed, 6)
   const sPressure = hash(seed, 7)
   const sPuff = hash(seed, 4)

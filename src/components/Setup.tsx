@@ -1,9 +1,9 @@
 import { Button } from "@ui-sdk/solid/button"
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "@ui-sdk/solid/collapsible"
-import { Input } from "@ui-sdk/solid/input"
-import { createSignal, For, Show } from "solid-js"
+import { createInputController, Input } from "@ui-sdk/solid/input"
+import { createEffect, createSignal, For, Show } from "solid-js"
 import { type BoatClassId, boatClass, DEFAULT_BOAT, FLEET, WIND_BAND_LABEL, windBand } from "../game/fleet.ts"
-import { type CourseKind, describeConfig, type IslandDensity, type MapSize, type RaceConfig, randomConfig, TEST_SEED, type Weather } from "../game/map.ts"
+import { type CourseKind, describeConfig, type IslandDensity, type MapSize, isSeed, MAX_SEED_LENGTH, normalizeSeed, type RaceConfig, randomConfig, SEED_CHARS, type Weather } from "../game/map.ts"
 import { parseJoinId } from "../game/multiplayer.ts"
 import type { Difficulty, Entrant } from "../game/race.ts"
 import { randomSeed } from "../game/rng.ts"
@@ -59,13 +59,23 @@ function Setting(props: { label: string; children: import("solid-js").Element })
 /** The race: roll a random one, or open Customize to set the course, wind and map by hand. */
 export function CoursePanel(props: { config: RaceConfig; disabled?: boolean; onChange: (c: RaceConfig) => void }) {
   const set = <K extends keyof RaceConfig>(k: K, v: RaceConfig[K]) => props.onChange({ ...props.config, [k]: v })
-  // The map number as typed. The input is controlled and puts back its value after every keystroke unless
-  // that value changes, so the text being edited lives here; each whole number picks that map at once.
-  const [seedText, setSeedText] = createSignal<string | null>(null)
-  const editSeed = (text: string) => {
-    setSeedText(text)
-    const n = Number(text)
-    if (text.trim() !== "" && Number.isInteger(n) && (n >= 0 || n === TEST_SEED)) set("seed", n)
+  // The map name field keeps what's typed in it (English letters, digits and ":", anything else is
+  // refused), and each name picks that map at once; an empty field leaves it be. Its text is set from the
+  // race's map name only when that changes some other way (New map, Random race), or when it's left.
+  const seedField = createInputController()
+  let typingSeed = false
+  const showSeed = () => {
+    if (seedField.getValue() !== props.config.seed) seedField.setValue(props.config.seed, { reason: "imperative" })
+  }
+  createEffect(
+    () => props.config.seed,
+    () => {
+      if (!typingSeed) showSeed()
+    },
+  )
+  const editSeed = (text: string, details: { cancel: () => void }) => {
+    if (!SEED_CHARS.test(text)) return details.cancel()
+    if (typingSeed && isSeed(text) && normalizeSeed(text) !== normalizeSeed(props.config.seed)) set("seed", text)
   }
   return (
     <Panel title="Race" class="space-y-3">
@@ -187,16 +197,22 @@ export function CoursePanel(props: { config: RaceConfig; disabled?: boolean; onC
           />
           <div class="flex items-end gap-2">
             <label class="min-w-0 flex-1">
-              <span class="mb-1 block text-sm font-medium">Map number</span>
+              <span class="mb-1 block text-sm font-medium">Map</span>
               <Input
-                type="number"
-                min={TEST_SEED}
-                step={1}
-                value={seedText() ?? String(props.config.seed)}
+                type="text"
+                maxlength={MAX_SEED_LENGTH}
+                spellcheck={false}
+                autocomplete="off"
+                controller={seedField}
+                defaultValue={props.config.seed}
                 disabled={props.disabled}
                 onValueChange={editSeed}
-                onBlur={() => setSeedText(null)}
-                class="h-9 w-full rounded-md border border-input bg-card px-3 text-sm tabular-nums shadow-xs outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
+                onFocus={() => (typingSeed = true)}
+                onBlur={() => {
+                  typingSeed = false
+                  showSeed()
+                }}
+                class="h-9 w-full rounded-md border border-input bg-card px-3 text-sm shadow-xs outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
               />
             </label>
             <Button
@@ -208,6 +224,7 @@ export function CoursePanel(props: { config: RaceConfig; disabled?: boolean; onC
               New map
             </Button>
           </div>
+
         </CollapsiblePanel>
       </Collapsible>
     </Panel>

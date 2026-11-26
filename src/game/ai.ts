@@ -1,6 +1,6 @@
 import { CELLS_PER_KNOT, type Plan, simulate, twaOf } from "./boat.ts"
 import { bearing, clamp, cross, type Pt, pointSegment, samePt, segmentCross, sub } from "./geom.ts"
-import { type GameMap, inBounds, landHit } from "./map.ts"
+import { type GameMap, inBounds, landHit, mapSeed } from "./map.ts"
 import { type BoatClass, boatClass } from "./fleet.ts"
 import { type Boat, CONTACT, crossGatesPath, type Difficulty, pathApproach, type RaceState, racing, rightOfWay } from "./race.ts"
 import { hash, mulberry32 } from "./rng.ts"
@@ -308,7 +308,7 @@ export function chooseMove(m: GameMap, state: RaceState, boatId: number): Plan {
   const me = state.boats[boatId]
   const cls = boatClass(me.boat)
   const skill = SKILL[me.difficulty ?? "medium"]
-  const rnd = mulberry32(hash(m.config.seed, 77, state.turn, boatId))
+  const rnd = mulberry32(hash(mapSeed(m.config), 77, state.turn, boatId))
   const r = route(m, state.turn, cls)
   const field = windField(m, state.turn)
   const wind = windAt(field, me.pos)

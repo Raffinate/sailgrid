@@ -26,7 +26,18 @@ export function hash(...xs: number[]): number {
   return h >>> 0
 }
 
-export const randomSeed = () => Math.floor(Math.random() * 1_000_000)
+/** Integer hash of a piece of text (FNV-1a over its UTF-16 code units). */
+export function textHash(text: string): number {
+  let h = 0x811c9dc5
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i)
+    h = Math.imul(h, 0x01000193)
+  }
+  return h >>> 0
+}
+
+/** A fresh map: a random 32-bit generator number, as `seed:<number>` (see mapSeed). */
+export const randomSeed = (rnd: () => number = Math.random) => `seed:${Math.floor(rnd() * 2 ** 32)}`
 
 const smooth = (t: number) => t * t * t * (t * (t * 6 - 15) + 10)
 

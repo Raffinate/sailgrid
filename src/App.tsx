@@ -21,7 +21,7 @@ import { ThemeToggle } from "./components/ThemeToggle.tsx"
 import { buttonClass, Kbd, Panel } from "./components/ui.tsx"
 import type { Plan } from "./game/boat.ts"
 import { type BoatClassId, DEFAULT_BOAT, FLEET } from "./game/fleet.ts"
-import { generateMap, type RaceConfig, randomConfig } from "./game/map.ts"
+import { generateMap, isSeed, type RaceConfig, randomConfig } from "./game/map.ts"
 import { parseJoinId } from "./game/multiplayer.ts"
 import { previewPlan, raceTime, racing, standings } from "./game/race.ts"
 import { randomSeed } from "./game/rng.ts"
@@ -44,7 +44,9 @@ function loadSetup(): { config: RaceConfig; players: SetupPlayer[] } {
     // Setups saved before the Weather setting had steady or shifty wind (and maybe a chance of a front).
     const { shifts, frontChance: _, ...config } = (saved.config ?? {}) as Partial<RaceConfig> & { shifts?: string; frontChance?: number }
     const weather = config.weather ?? (shifts === "steady" ? "settled" : shifts === "shifty" ? "unsettled" : fallback.config.weather)
-    return { config: { ...fallback.config, ...config, weather }, players }
+    // Setups saved when maps had numbers: the number, as a name.
+    const seed = typeof config.seed === "number" ? String(config.seed) : typeof config.seed === "string" && isSeed(config.seed) ? config.seed : fallback.config.seed
+    return { config: { ...fallback.config, ...config, weather, seed }, players }
   } catch {
     return fallback
   }
@@ -78,7 +80,8 @@ export function App() {
     const url = URL.createObjectURL(new Blob([session.trace()], { type: "application/json" }))
     const a = document.createElement("a")
     a.href = url
-    a.download = `sailgrid-race-${snap().config?.seed ?? "unknown"}.json`
+    const name = (snap().config?.seed ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")
+    a.download = `sailgrid-race-${name || "unknown"}.json`
     a.click()
     setTimeout(() => URL.revokeObjectURL(url))
   }
