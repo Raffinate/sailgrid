@@ -9,8 +9,8 @@ import type { GameMap } from "../game/map.ts"
  * The one case that needs care is a cell with land on two opposite corners and water on the other two.
  * Whether the two pieces of land meet depends on the height in the middle of the cell: above sea level
  * they join and close the channel; at or below it there's a channel between them, and boats sail
- * through it. Each piece of coast there also bends in toward the middle, so a point on the diagonal is
- * added where the surface crosses sea level.
+ * through it. Each piece of coast there follows the surface's own curve across the cell (see `curve`), as
+ * the narrowest point of the channel can be anywhere in it, not just in the middle.
  */
 export interface Coastline {
   /** Land polygons. */
@@ -19,18 +19,41 @@ export interface Coastline {
   coast: [Pt, Pt][]
 }
 
-/** Where h goes from 0 at one end of a diagonal: the root of the bilinear surface along it, nearest `from`. */
-function diagonalZero(from: number, to: number, side1: number, side2: number): number {
-  // Along the diagonal, h(t) = from·(1−t)² + to·t² + (side1 + side2)·t·(1−t).
-  const A = from + to - side1 - side2
-  const B = side1 + side2 - 2 * from
-  const C = from
-  if (Math.abs(A) < 1e-12) return Math.min(1, Math.max(0, -C / B))
-  const disc = Math.max(0, B * B - 4 * A * C)
-  const s = Math.sqrt(disc)
-  const roots = [(-B - s) / (2 * A), (-B + s) / (2 * A)].filter((t) => t >= 0 && t <= 1)
-  return roots.length ? Math.min(...roots) : 0.5
+/** Points drawn along each curved piece of coast in a cell where two islands nearly meet. */
+const CURVE_POINTS = 8
+
+/**
+ * Points along sea level on the bilinear surface of a cell, strictly between two points `from` and `to` on
+ * its edges (corner heights a, b, c, d clockwise from the top left at x0, y0). Across a cell each piece of
+ * sea level is a branch of a hyperbola, which crosses every row and column of the cell at most once, so
+ * it's found exactly at evenly spaced steps along whichever way it runs further.
+ */
+function curve(x0: number, y0: number, a: number, b: number, c: number, d: number, from: Pt, to: Pt): Pt[] {
+  const out: Pt[] = []
+  const alongX = Math.abs(to.x - from.x) >= Math.abs(to.y - from.y)
+  const clamp = (t: number) => Math.min(1, Math.max(0, t))
+  for (let k = 1; k < CURVE_POINTS; k++) {
+    const f = k / CURVE_POINTS
+    if (alongX) {
+      const u = from.x - x0 + (to.x - from.x) * f
+      // Down the column at u: h goes from the top edge's height to the bottom edge's.
+      const top = a * (1 - u) + b * u
+      const bottom = d * (1 - u) + c * u
+      if (top === bottom) continue
+      out.push({ x: x0 + u, y: y0 + clamp(top / (top - bottom)) })
+    } else {
+      const v = from.y - y0 + (to.y - from.y) * f
+      const left = a * (1 - v) + d * v
+      const right = b * (1 - v) + c * v
+      if (left === right) continue
+      out.push({ x: x0 + clamp(left / (left - right)), y: y0 + v })
+    }
+  }
+  return out
 }
+
+/** Coast segments joining a run of points. */
+const chain = (pts: Pt[]): [Pt, Pt][] => pts.slice(1).map((p, i) => [pts[i], p])
 
 export function coastline(m: GameMap): Coastline {
   const land: Pt[][] = []
@@ -64,12 +87,8 @@ export function coastline(m: GameMap): Coastline {
         const t = a[2] / (a[2] - b[2])
         return { x: a[0] + (b[0] - a[0]) * t, y: a[1] + (b[1] - a[1]) * t }
       }
-      /** Where the coast crosses the diagonal from corner i (toward the opposite corner). */
-      const diagonal = (i: number): Pt => {
-        const o = (i + 2) % 4
-        const t = diagonalZero(c[i][2], c[o][2], c[(i + 1) % 4][2], c[(i + 3) % 4][2])
-        return { x: c[i][0] + (c[o][0] - c[i][0]) * t, y: c[i][1] + (c[o][1] - c[i][1]) * t }
-      }
+      /** The coast from one edge crossing to another, round the corner between them. */
+      const between = (from: Pt, to: Pt): Pt[] => [from, ...curve(x, y, c[0][2], c[1][2], c[2][2], c[3][2], from, to), to]
       const saddle = inside === 2 && wet[0] === wet[2]
       if (saddle) {
         // The bilinear surface in the middle of the cell is the mean of its corners.
@@ -79,9 +98,9 @@ export function coastline(m: GameMap): Coastline {
           const poly: Pt[] = []
           for (let i = 0; i < 4; i++) {
             if (wet[i]) {
-              const q = diagonal(i)
-              poly.push(q, edge(i))
-              coast.push([edge((i + 3) % 4), q], [q, edge(i)])
+              const run = between(edge((i + 3) % 4), edge(i))
+              poly.push(...run.slice(1))
+              coast.push(...chain(run))
             } else poly.push({ x: c[i][0], y: c[i][1] }, edge(i))
           }
           land.push(poly)
@@ -89,9 +108,9 @@ export function coastline(m: GameMap): Coastline {
           // A channel through the middle: each land corner is its own little headland.
           for (let i = 0; i < 4; i++) {
             if (wet[i]) continue
-            const [a, q, b] = [edge(i), diagonal(i), edge((i + 3) % 4)]
-            land.push([{ x: c[i][0], y: c[i][1] }, a, q, b])
-            coast.push([a, q], [q, b])
+            const run = between(edge(i), edge((i + 3) % 4))
+            land.push([{ x: c[i][0], y: c[i][1] }, ...run])
+            coast.push(...chain(run))
           }
         }
         continue
