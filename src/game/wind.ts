@@ -467,7 +467,11 @@ function eddyFlow(eddies: Eddy[], x: number, y: number): Pt {
 
 const norm = (a: number) => ((a % 360) + 360) % 360
 
-function compute(m: GameMap, turn: number): WindField {
+/**
+ * The wind this turn, one intersection at a time: what `windField` computes for every intersection on the
+ * map. Tests that only look at a few places use it directly, which is much quicker than the whole field.
+ */
+export function windSampler(m: GameMap, turn: number): { at: (x: number, y: number) => Wind; baseFrom: number; baseSpeed: number } {
   const p = params(m)
   const { width, height } = m
   const seed = m.config.seed
@@ -523,6 +527,123 @@ function compute(m: GameMap, turn: number): WindField {
     return { baseFrom: norm(from), baseSpeed: speed }
   }
 
+  const at = (x: number, y: number): Wind => {
+    const i = y * width + x
+    // Upwind of the middle, the air (and the shift it carries) arrives sooner.
+    const s = (x - center.x) * up.x + (y - center.y) * up.y
+    const tl = turn + s / carry
+    let f = baseFromAt(tl)
+    let w = baseSpeedAt(tl)
+
+    // The front: backing and easing ahead of the line, a squall on it, the new wind behind it.
+    let gusty = 1
+    if (front) {
+      const d = behindFront(m, front, turn, { x, y })
+      const behind = smoothstep(0.5 + d / FRONT_WIDTH)
+      const ahead = d < 0 ? Math.exp(d / 12) : 0
+      const squall = Math.exp(-((d - 3) ** 2) / 18)
+      f += front.shift * behind - 6 * ahead + 14 * squall * fbm3(sSquall, x / 4, y / 4, turn / 2, 1)
+      w *= (1 + (front.gain - 1) * behind) * (1 - 0.15 * ahead) * (1 + 0.35 * squall)
+      // Behind the line the air is chaotic for a kilometre or two: the direction jumps 25–35° and gusts
+      // come and go, a new pattern every turn, before it settles into the new breeze.
+      const rough = frontRoughness(front, d)
+      if (rough > 0.01) {
+        f += clamp(70 * rough * fbm3(sChaos, x / 7, y / 7, turn * 1.1, 2), -35, 35)
+        w *= 1 + rough * clamp(1.1 * fbm3(sGust, x / 5, y / 5, turn * 1.3, 2), -0.35, 0.45)
+      }
+      gusty = 1 + 0.5 * behind
+    }
+
+    // Wind lines: inside each band the wind is shifted and stronger (or lighter), with a little
+    // gustiness right at the leading edge.
+    for (const l of lines) {
+      const d = behindLine(m, l, turn, { x, y })
+      const k = windLineWeight(l, d)
+      if (k < 0.002) continue
+      const edge = Math.exp(-((d - 2) ** 2) / 8)
+      f += l.shift * k + 6 * edge * fbm3(sEdge, x / 4, y / 4, turn, 1)
+      w *= (1 + (l.gain - 1) * k) * (1 + 0.12 * edge)
+    }
+
+    // Puffs: a pattern moving downwind with the air, stretched along the wind, slowly changing.
+    const qx = x + up.x * carry * turn
+    const qy = y + up.y * carry * turn
+    const a = (qx * up.x + qy * up.y) / 18
+    const c = (qx * across.x + qy * across.y) / 10
+    const g = clamp(p.puff * 1.8 * gusty * fbm3(sPuff, a, c, turn / 5, 2), -0.6, 0.6)
+    w *= 1 + g
+    f += p.veer * g + p.puffVeerNoise * 1.6 * fbm3(sPuffDir, a * 1.3, c * 1.3, turn / 4, 1)
+
+    // Geography: a slow, fixed bias across the course.
+    w *= 1 + p.biasSpeed * valueNoise(sBias, x / 55, y / 55)
+    f += p.biasDir * valueNoise(sBias + 1, x / 60, y / 60)
+
+    // Eddies: the air turning round each one adds to the wind on one side and takes from it on the other.
+    if (eddies.length) {
+      const e = eddyFlow(eddies, x, y)
+      if (e.x || e.y) {
+        const to = dirVec(f + 180)
+        const vx = to.x * w + e.x
+        const vy = to.y * w + e.y
+        w = Math.hypot(vx, vy)
+        f = bearing({ x: vx, y: vy }, { x: 0, y: 0 })
+      }
+    }
+
+    if (islands) {
+      const u = dirVec(f)
+      // Shadow: land upwind slows the wind; higher land reaches further, and the air behind it is gusty.
+      let shadowed = false
+      for (let d = 1; d <= 22; d++) {
+        if (landAt(x + u.x * d, y + u.y * d) <= 0) continue
+        let peak = 0
+        for (let e = d; e < d + 8; e++) peak = Math.max(peak, landAt(x + u.x * e, y + u.y * e))
+        const reach = clamp(8 + 30 * peak, 8, 22)
+        if (d < reach) {
+          const k = d / reach
+          w *= 0.3 + 0.7 * k * k
+          f += (1 - k) * 15 * fbm3(sSwirl, x / 5, y / 5, turn / 2, 1)
+          shadowed = true
+        }
+        break
+      }
+      const coast = m.coast[i]
+      if (!shadowed && coast > 0 && coast < 7) {
+        // Squeezed between land on both sides (or round a headland on one), the wind speeds up.
+        const side = { x: -u.y, y: u.x }
+        let squeeze = 0
+        for (const sgn of [1, -1])
+          for (let d = 1; d <= 6; d++)
+            if (landAt(x + side.x * d * sgn, y + side.y * d * sgn) > 0) {
+              squeeze += 1 - (d - 1) / 6
+              break
+            }
+        w *= 1 + 0.08 * squeeze
+      }
+      // Blowing onto a shore, the wind bends to run along it.
+      if (coast > 0 && coast < 4 && x > 0 && y > 0 && x < width - 1 && y < height - 1) {
+        const n = { x: m.coast[i + 1] - m.coast[i - 1], y: m.coast[i + width] - m.coast[i - width] }
+        const nl = Math.hypot(n.x, n.y)
+        if (nl > 1e-6) {
+          n.x /= nl
+          n.y /= nl
+          const to = dirVec(f + 180)
+          const into = dot(to, n)
+          if (into < 0) {
+            const k = 0.85 * (1 - coast / 4)
+            f = bearing({ x: to.x - into * n.x * k, y: to.y - into * n.y * k }, { x: 0, y: 0 })
+          }
+        }
+      }
+    }
+    return { from: ((f % 360) + 360) % 360, speed: clamp(w, 0.5, 35) }
+  }
+  return { at, ...baseAtCenter() }
+}
+
+function compute(m: GameMap, turn: number): WindField {
+  const { width, height } = m
+  const s = windSampler(m, turn)
   const from = new Float32Array(width * height)
   const speed = new Float32Array(width * height)
   const vx = new Float32Array(width * height)
@@ -530,131 +651,14 @@ function compute(m: GameMap, turn: number): WindField {
   for (let y = 0; y < height; y++)
     for (let x = 0; x < width; x++) {
       const i = y * width + x
-      // Upwind of the middle, the air (and the shift it carries) arrives sooner.
-      const s = (x - center.x) * up.x + (y - center.y) * up.y
-      const tl = turn + s / carry
-      let f = baseFromAt(tl)
-      let w = baseSpeedAt(tl)
-
-      // The front: backing and easing ahead of the line, a squall on it, the new wind behind it.
-      let gusty = 1
-      if (front) {
-        const d = behindFront(m, front, turn, { x, y })
-        const behind = smoothstep(0.5 + d / FRONT_WIDTH)
-        const ahead = d < 0 ? Math.exp(d / 12) : 0
-        const squall = Math.exp(-((d - 3) ** 2) / 18)
-        f += front.shift * behind - 6 * ahead + 14 * squall * fbm3(sSquall, x / 4, y / 4, turn / 2, 1)
-        w *= (1 + (front.gain - 1) * behind) * (1 - 0.15 * ahead) * (1 + 0.35 * squall)
-        // Behind the line the air is chaotic for a kilometre or two: the direction jumps 25–35° and gusts
-        // come and go, a new pattern every turn, before it settles into the new breeze.
-        const rough = frontRoughness(front, d)
-        if (rough > 0.01) {
-          f += clamp(70 * rough * fbm3(sChaos, x / 7, y / 7, turn * 1.1, 2), -35, 35)
-          w *= 1 + rough * clamp(1.1 * fbm3(sGust, x / 5, y / 5, turn * 1.3, 2), -0.35, 0.45)
-        }
-        gusty = 1 + 0.5 * behind
-      }
-
-      // Wind lines: inside each band the wind is shifted and stronger (or lighter), with a little
-      // gustiness right at the leading edge.
-      for (const l of lines) {
-        const d = behindLine(m, l, turn, { x, y })
-        const k = windLineWeight(l, d)
-        if (k < 0.002) continue
-        const edge = Math.exp(-((d - 2) ** 2) / 8)
-        f += l.shift * k + 6 * edge * fbm3(sEdge, x / 4, y / 4, turn, 1)
-        w *= (1 + (l.gain - 1) * k) * (1 + 0.12 * edge)
-      }
-
-      // Puffs: a pattern moving downwind with the air, stretched along the wind, slowly changing.
-      const qx = x + up.x * carry * turn
-      const qy = y + up.y * carry * turn
-      const a = (qx * up.x + qy * up.y) / 18
-      const c = (qx * across.x + qy * across.y) / 10
-      const g = clamp(p.puff * 1.8 * gusty * fbm3(sPuff, a, c, turn / 5, 2), -0.6, 0.6)
-      w *= 1 + g
-      f += p.veer * g + p.puffVeerNoise * 1.6 * fbm3(sPuffDir, a * 1.3, c * 1.3, turn / 4, 1)
-
-      // Geography: a slow, fixed bias across the course.
-      w *= 1 + p.biasSpeed * valueNoise(sBias, x / 55, y / 55)
-      f += p.biasDir * valueNoise(sBias + 1, x / 60, y / 60)
-
-      // Eddies: the air turning round each one adds to the wind on one side and takes from it on the other.
-      if (eddies.length) {
-        const e = eddyFlow(eddies, x, y)
-        if (e.x || e.y) {
-          const to = dirVec(f + 180)
-          const vx = to.x * w + e.x
-          const vy = to.y * w + e.y
-          w = Math.hypot(vx, vy)
-          f = bearing({ x: vx, y: vy }, { x: 0, y: 0 })
-        }
-      }
-
-      if (islands) {
-        const u = dirVec(f)
-        // Shadow: land upwind slows the wind; higher land reaches further, and the air behind it is gusty.
-        let shadowed = false
-        for (let d = 1; d <= 22; d++) {
-          if (landAt(x + u.x * d, y + u.y * d) <= 0) continue
-          let peak = 0
-          for (let e = d; e < d + 8; e++) peak = Math.max(peak, landAt(x + u.x * e, y + u.y * e))
-          const reach = clamp(8 + 30 * peak, 8, 22)
-          if (d < reach) {
-            const k = d / reach
-            w *= 0.3 + 0.7 * k * k
-            f += (1 - k) * 15 * fbm3(sSwirl, x / 5, y / 5, turn / 2, 1)
-            shadowed = true
-          }
-          break
-        }
-        const coast = m.coast[i]
-        if (!shadowed && coast > 0 && coast < 7) {
-          // Squeezed between land on both sides (or round a headland on one), the wind speeds up.
-          const side = { x: -u.y, y: u.x }
-          let squeeze = 0
-          for (const sgn of [1, -1])
-            for (let d = 1; d <= 6; d++)
-              if (landAt(x + side.x * d * sgn, y + side.y * d * sgn) > 0) {
-                squeeze += 1 - (d - 1) / 6
-                break
-              }
-          w *= 1 + 0.08 * squeeze
-        }
-        // Blowing onto a shore, the wind bends to run along it.
-        if (coast > 0 && coast < 4 && x > 0 && y > 0 && x < width - 1 && y < height - 1) {
-          const n = { x: m.coast[i + 1] - m.coast[i - 1], y: m.coast[i + width] - m.coast[i - width] }
-          const nl = Math.hypot(n.x, n.y)
-          if (nl > 1e-6) {
-            n.x /= nl
-            n.y /= nl
-            const to = dirVec(f + 180)
-            const into = dot(to, n)
-            if (into < 0) {
-              const k = 0.85 * (1 - coast / 4)
-              f = bearing({ x: to.x - into * n.x * k, y: to.y - into * n.y * k }, { x: 0, y: 0 })
-            }
-          }
-        }
-      }
-      f = ((f % 360) + 360) % 360
-      w = clamp(w, 0.5, 35)
+      const { from: f, speed: w } = s.at(x, y)
       from[i] = f
       speed[i] = w
       const v = dirVec(f)
       vx[i] = v.x * w
       vy[i] = v.y * w
     }
-  return {
-    turn,
-    width,
-    height,
-    from,
-    speed,
-    vx,
-    vy,
-    ...baseAtCenter(),
-  }
+  return { turn, width, height, from, speed, vx, vy, baseFrom: s.baseFrom, baseSpeed: s.baseSpeed }
 }
 
 const cache = new WeakMap<GameMap, Map<number, WindField>>()

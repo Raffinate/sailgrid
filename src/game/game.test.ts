@@ -7,7 +7,7 @@ import { defaultConfig, describeConfig, type GameMap, generateMap, isWater, MAP_
 import { mulberry32 } from "./rng.ts"
 import { crossGates, crossGatesPath, type Entrant, newRace, type RaceState, resolveTurn, rightOfWay, standings } from "./race.ts"
 import { BOAT_LENGTH_METERS, CELL_METERS, CELLS_PER_KNOT, TURN_SECONDS } from "./units.ts"
-import { behindFront, behindLine, CARRY, eddiesAt, frontOf, frontRoughness, windAt, windField, windLinesAt, windLineWeight } from "./wind.ts"
+import { behindFront, behindLine, CARRY, eddiesAt, frontOf, frontRoughness, windAt, windField, windLinesAt, windLineWeight, windSampler } from "./wind.ts"
 
 const first = boatClass("j-35")
 const polar = first.polar
@@ -413,8 +413,9 @@ describe("wind lines", () => {
             const others = windLinesAt(m, u).filter((o) => o !== l)
             if (patch.some((p) => others.some((o) => windLineWeight(o, behindLine(m, o, u, p)) > 0.05))) continue
             const k = patch.map((p) => windLineWeight(l, behindLine(m, l, u, p)))
-            const f = windField(m, u)
-            const dev = patch.reduce((sum, p) => sum + angleDiff(f.from[p.y * m.width + p.x], f.baseFrom), 0) / patch.length
+            // Just the patch, not the whole map: this looks at a few hundred turns.
+            const w = windSampler(m, u)
+            const dev = patch.reduce((sum, p) => sum + angleDiff(w.at(p.x, p.y).from, w.baseFrom), 0) / patch.length
             if (k.every((x) => x > 0.9)) inside.push(dev)
             else if (k.every((x) => x < 0.05)) outside.push(dev)
           }
@@ -426,7 +427,7 @@ describe("wind lines", () => {
         }
     }
     expect(checked).toBeGreaterThan(3)
-  }, 60_000)
+  })
 })
 
 describe("behind a front", () => {
