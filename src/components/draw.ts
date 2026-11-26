@@ -4,6 +4,7 @@ import type { GameMap, Gate } from "../game/map.ts"
 import type { Boat } from "../game/race.ts"
 import type { WindField } from "../game/wind.ts"
 import { coastline } from "./coastline.ts"
+import { isotachLevels, isotachs } from "./isotachs.ts"
 
 /** Canvas drawing of the chart: grid paper, islands, wind, the course, tracks and boats. */
 
@@ -490,4 +491,27 @@ export function drawPreview(ctx: CanvasRenderingContext2D, v: Viewport, c: Palet
     ctx.lineTo(s.x - k, s.y + k)
     ctx.stroke()
   }
+}
+
+// ---- Isotachs -----------------------------------------------------------------------------------
+
+/**
+ * Lines of equal wind speed at the 20th, 50th and 80th percentile of this turn's wind (see isotachLevels):
+ * thin and all alike, so they show the shape of the wind.
+ */
+export function drawIsotachs(ctx: CanvasRenderingContext2D, m: GameMap, v: Viewport, c: Palette, f: WindField) {
+  ctx.save()
+  ctx.strokeStyle = c.foreground
+  ctx.globalAlpha = 0.35
+  ctx.lineWidth = 0.75
+  ctx.beginPath()
+  for (const { segments } of isotachs(m, f.speed, isotachLevels(m, f.speed)))
+    for (const [a, b] of segments) {
+      const p = toPx(v, a)
+      const q = toPx(v, b)
+      ctx.moveTo(p.x, p.y)
+      ctx.lineTo(q.x, q.y)
+    }
+  ctx.stroke()
+  ctx.restore()
 }

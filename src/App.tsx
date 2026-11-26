@@ -67,6 +67,7 @@ export function App() {
   const [snap, setSnap] = createSignal<Snapshot>(IDLE_SNAPSHOT)
   const [helpOpen, setHelpOpen] = createSignal(false)
   const [showWind, setShowWind] = createSignal(true)
+  const [showIsotachs, setShowIsotachs] = createSignal(true)
   const [showNames, setShowNames] = createSignal(true)
   const session = new Session((s) => setSnap(s))
   // Debugging from the browser console: `copy(sailgrid.trace())` copies the race so far as JSON.
@@ -367,6 +368,7 @@ export function App() {
                   focus={activeBoat()?.id ?? snap().mine[0] ?? null}
                   preview={preview() ? { move: preview()!.move, stop: preview()!.stop, aground: preview()!.aground } : null}
                   showWind={showWind()}
+                  showIsotachs={showIsotachs()}
                   showNames={showNames()}
                   onAim={(heading) => setPlan({ heading })}
                 />
@@ -411,6 +413,19 @@ export function App() {
               <label class="inline-flex cursor-pointer items-center gap-1.5">
                 <input type="checkbox" checked={showWind()} onChange={(e) => setShowWind(e.currentTarget.checked)} class="accent-current" />
                 Show wind
+              </label>
+              <label
+                class="inline-flex cursor-pointer items-center gap-1.5"
+                title="Lines of equal wind speed: lighter than this on a fifth of the water, half of it, and four fifths of it"
+              >
+                <input
+                  type="checkbox"
+                  checked={showIsotachs()}
+                  disabled={!showWind()}
+                  onChange={(e) => setShowIsotachs(e.currentTarget.checked)}
+                  class="accent-current"
+                />
+                Isotachs
               </label>
               <label class="inline-flex cursor-pointer items-center gap-1.5">
                 <input type="checkbox" checked={showNames()} onChange={(e) => setShowNames(e.currentTarget.checked)} class="accent-current" />

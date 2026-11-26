@@ -11,6 +11,7 @@ import {
   drawPreview,
   drawStatic,
   drawTrack,
+  drawIsotachs,
   drawWind,
   fromPx,
   type Palette,
@@ -34,6 +35,8 @@ interface BoardProps {
   focus: number | null
   preview: Preview | null
   showWind: boolean
+  /** Lines of equal wind speed at the 20th, 50th and 80th percentile of this turn's wind (with the wind shown). */
+  showIsotachs: boolean
   showNames: boolean
   onAim?: (heading: number) => void
 }
@@ -48,6 +51,7 @@ interface Frame {
   focus: number | null
   preview: Preview | null
   showWind: boolean
+  showIsotachs: boolean
   showNames: boolean
 }
 
@@ -100,8 +104,16 @@ export function Board(props: BoardProps) {
     const turn = state?.turn ?? 0
     const field = windField(map, turn)
     if (frame.showWind) {
-      const wKey = `${sKey}:${turn}`
-      if (windLayer?.key !== wKey) windLayer = { key: wKey, canvas: layer(v, (x) => drawWind(x, map, v, c, field)) }
+      const iso = frame.showIsotachs
+      const wKey = `${sKey}:${turn}:${iso}`
+      if (windLayer?.key !== wKey)
+        windLayer = {
+          key: wKey,
+          canvas: layer(v, (x) => {
+            drawWind(x, map, v, c, field)
+            if (iso) drawIsotachs(x, map, v, c, field)
+          }),
+        }
       ctx.drawImage(windLayer.canvas, 0, 0, v.width, v.height)
     }
 
@@ -167,6 +179,7 @@ export function Board(props: BoardProps) {
       focus: props.focus,
       preview: props.preview,
       showWind: props.showWind,
+      showIsotachs: props.showIsotachs,
       showNames: props.showNames,
     }),
     (f) => {
