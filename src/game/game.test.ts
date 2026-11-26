@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest"
 import { chooseMove, route, timeToFinish } from "./ai.ts"
-import { maneuver, simulate, tackOf } from "./boat.ts"
+import { maneuver, moveAt, SAMPLE, simulate, tackOf } from "./boat.ts"
 import { boatClass, FLEET, windBand } from "./fleet.ts"
 import { angleDiff, bearing, closestApproach, dirVec, segmentCross } from "./geom.ts"
 import { defaultConfig, describeConfig, type GameMap, generateMap, isWater, MAP_SIZES, type RaceConfig, randomConfig, startingPositions, type Weather } from "./map.ts"
 import { mulberry32 } from "./rng.ts"
 import { crossGates, crossGatesPath, type Entrant, newRace, type RaceState, resolveTurn, rightOfWay, standings } from "./race.ts"
-import { BOAT_LENGTH_METERS, CELL_METERS, CELLS_PER_KNOT } from "./units.ts"
+import { BOAT_LENGTH_METERS, CELL_METERS, CELLS_PER_KNOT, TURN_SECONDS } from "./units.ts"
 import { behindFront, behindLine, CARRY, eddiesAt, frontOf, frontRoughness, windAt, windField, windLinesAt, windLineWeight } from "./wind.ts"
 
 const first = boatClass("j-35")
@@ -160,6 +160,33 @@ describe("rules", () => {
   })
   it("a tacking boat keeps clear", () => {
     expect(rightOfWay({ ...close(45, 0, 0), tacked: true }, close(45, 1, 0), 0).rule).toBe("13")
+  })
+  it("when both tack, only the one to port keeps clear", () => {
+    // Wind from north: facing it, the boat further west is on the other's port side.
+    const tacking = (heading: number, x: number, y: number) => ({ ...close(heading, x, y), tacked: true })
+    expect(rightOfWay(tacking(315, 0, 0), tacking(45, 1, 0), 0)).toEqual({ fault: ["a"], rule: "13" })
+    expect(rightOfWay(tacking(45, 1, 0), tacking(315, 0, 0), 0)).toEqual({ fault: ["b"], rule: "13" })
+  })
+  it("when both tack, the one astern keeps clear", () => {
+    // Wind from north: the boat further south is astern, even if it's also to starboard.
+    const tacking = (heading: number, x: number, y: number) => ({ ...close(heading, x, y), tacked: true })
+    expect(rightOfWay(tacking(315, 0, 0), tacking(45, 1, 2), 0)).toEqual({ fault: ["b"], rule: "13" })
+  })
+  it("knows how a boat was pointing, and whether it was tacking, at any moment of its move", () => {
+    const wind = () => ({ from: 0, speed: 12 })
+    const tack = simulate({ x: 50, y: 50 }, { heading: 315, speed: 6 }, { heading: 45 }, wind, first)
+    const { from, to } = tack.tacking!
+    // Tacking only from head to wind until close-hauled on the new tack, well inside the minute.
+    expect(from).toBeGreaterThan(0)
+    expect(to).toBeLessThan(TURN_SECONDS)
+    const start = moveAt(tack, 0)
+    expect(start.heading).toBeCloseTo(315)
+    expect(start.tacked).toBe(false)
+    expect(moveAt(tack, (from + to) / 2 / SAMPLE).tacked).toBe(true)
+    const end = moveAt(tack, tack.path.length - 1)
+    expect(end.heading).toBeCloseTo(45)
+    expect(end.tacked).toBe(false)
+    expect(end.pos).toEqual(tack.to)
   })
 })
 

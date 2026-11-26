@@ -1,4 +1,4 @@
-import { type Move, type Plan, pathAt, simulate, tackOf } from "./boat.ts"
+import { type Move, moveAt, type Plan, simulate, tackOf } from "./boat.ts"
 import { closestApproach, cross, dirVec, dist, dot, lerp, pointSegment, type Pt, roundPt, samePt, segmentCross, sub } from "./geom.ts"
 import { type GameMap, isWater, landHit, startingPositions } from "./map.ts"
 import { type BoatClassId, boatClass } from "./fleet.ts"
@@ -200,15 +200,18 @@ export function sail(map: GameMap, path: Pt[]): Sailed {
 const touchesMark = (map: GameMap, path: Pt[]) =>
   map.marks.some((mk) => path.some((p, i) => i > 0 && pointSegment(mk, path[i - 1], p).d < MARK_TOUCH))
 
-/** Closest approach of two boats sailing their paths at the same time (points every few seconds). */
-export function pathApproach(a: Pt[], b: Pt[]): { d: number; t: number } {
+/**
+ * Closest approach of two boats sailing their paths at the same time (points every few seconds): how
+ * close, and when, in path points from the start of the turn.
+ */
+export function pathApproach(a: Pt[], b: Pt[]): { d: number; k: number } {
   const n = Math.max(a.length, b.length) - 1
   const at = (p: Pt[], i: number) => p[Math.min(i, p.length - 1)]
-  let best = { d: Infinity, t: 0 }
-  if (n <= 0) return { d: dist(a[0], b[0]), t: 0 }
+  let best = { d: Infinity, k: 0 }
+  if (n <= 0) return { d: dist(a[0], b[0]), k: 0 }
   for (let i = 0; i < n; i++) {
     const c = closestApproach(at(a, i), at(a, i + 1), at(b, i), at(b, i + 1))
-    if (c.d < best.d) best = { d: c.d, t: (i + c.t) / n }
+    if (c.d < best.d) best = { d: c.d, k: i + c.t }
   }
   return best
 }
@@ -226,7 +229,15 @@ export function rightOfWay(
   b: { pos: Pt; heading: number; tacked: boolean },
   windFrom: number,
 ): { fault: ("a" | "b")[]; rule: Rule } {
-  if (a.tacked || b.tacked) return { fault: [...(a.tacked ? ["a" as const] : []), ...(b.tacked ? ["b" as const] : [])], rule: "13" }
+  if (a.tacked !== b.tacked) return { fault: [a.tacked ? "a" : "b"], rule: "13" }
+  if (a.tacked) {
+    // Both tacking: the one astern keeps clear, else the one on the other's port side. A tack passes head
+    // to wind, so both are judged facing the wind: further downwind is astern, further left is to port.
+    const up = dirVec(windFrom)
+    const ahead = dot(sub(a.pos, b.pos), up)
+    if (Math.abs(ahead) > OVERLAP) return { fault: [ahead < 0 ? "a" : "b"], rule: "13" }
+    return { fault: [cross(up, sub(a.pos, b.pos)) < 0 ? "a" : "b"], rule: "13" }
+  }
   const ta = tackOf(a.heading, windFrom)
   const tb = tackOf(b.heading, windFrom)
   if (ta !== tb) return { fault: [ta === "port" ? "a" : "b"], rule: "10" }
@@ -268,14 +279,11 @@ export function resolveTurn(map: GameMap, state: RaceState, plans: Map<number, P
       const ca = pathApproach(a.path, b.path)
       const sameSpot = samePt(a.end, b.end)
       if (ca.d >= CONTACT && !sameSpot) continue
-      const pa = pathAt(a.path, ca.t)
-      const pb = pathAt(b.path, ca.t)
-      const windFrom = windAt(field, lerp(pa, pb, 0.5)).from
-      const r = rightOfWay(
-        { pos: pa, heading: a.heading, tacked: a.tacked },
-        { pos: pb, heading: b.heading, tacked: b.tacked },
-        windFrom,
-      )
+      // Judged as the boats were when they met: where they were, which way they pointed, who was tacking.
+      const ma = moveAt(a, ca.k)
+      const mb = moveAt(b, ca.k)
+      const windFrom = windAt(field, lerp(ma.pos, mb.pos, 0.5)).from
+      const r = rightOfWay(ma, mb, windFrom)
       for (const f of r.fault) {
         const me = f === "a" ? a : b
         const them = f === "a" ? b : a

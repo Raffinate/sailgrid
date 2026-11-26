@@ -58,7 +58,7 @@ const RUDDER_DRAG = 0.08
 /** A gybe: the boom comes across and the boat wobbles. */
 const GYBE_LOSS = 0.94
 /** Wind is sampled along the way every this many seconds; the path is recorded at the same interval. */
-const SAMPLE = 5
+export const SAMPLE = 5
 
 export interface Move extends Maneuver {
   from: Pt
@@ -66,6 +66,10 @@ export interface Move extends Maneuver {
   to: Pt
   /** The track sailed, every few seconds; the last point is `to`. */
   path: Pt[]
+  /** The heading at each point of `path`. */
+  headings: number[]
+  /** Seconds into the turn from passing head to wind until close-hauled on the new tack (or done turning). */
+  tacking: { from: number; to: number } | null
   heading: number
   /** Signed true wind angle at the end of the turn. */
   twa: number
@@ -106,10 +110,13 @@ export function simulate(pos: Pt, boat: BoatMotion, plan: Plan, windAt: (p: Pt) 
   let turnSeconds = 0
   let dir = dirVec(h)
   let target = 0
+  let tacking: { from: number; to: number } | null = null
   const path: Pt[] = [pos]
+  const headings: number[] = [h]
   for (let s = 0; s < TURN_SECONDS; s++) {
     if (s > 0 && s % SAMPLE === 0) {
       path.push({ x, y })
+      headings.push(h)
       wind = windAt({ x, y })
     }
     const turning = remaining !== 0
@@ -124,13 +131,16 @@ export function simulate(pos: Pt, boat: BoatMotion, plan: Plan, windAt: (p: Pt) 
     }
     const twa = twaOf(h, wind.from)
     if (Math.sign(twa) !== Math.sign(prevTwa) && twa !== 0 && prevTwa !== 0) {
-      if (Math.abs(twa) < 90) tacked = true
-      else {
+      if (Math.abs(twa) < 90) {
+        tacked = true
+        tacking = { from: s, to: TURN_SECONDS }
+      } else {
         gybed = true
         v *= GYBE_LOSS
       }
     }
     prevTwa = twa
+    if (tacking && tacking.to === TURN_SECONDS && (remaining === 0 || Math.abs(twa) >= polar.minTwa(wind.speed))) tacking.to = s + 1
     target = polar.speed(twa, wind.speed)
     const tau = target >= v ? handling.tauUp : target < 0.05 ? handling.tauIrons : handling.tauDown
     v += (target - v) * (1 - Math.exp(-1 / tau))
@@ -142,6 +152,7 @@ export function simulate(pos: Pt, boat: BoatMotion, plan: Plan, windAt: (p: Pt) 
   const end = { x, y }
   const to = roundPt(end)
   path.push(to)
+  headings.push(h)
   const twa = twaOf(heading, wind.from)
   return {
     turn: Math.abs(angleDiff(heading, boat.heading)),
@@ -150,6 +161,8 @@ export function simulate(pos: Pt, boat: BoatMotion, plan: Plan, windAt: (p: Pt) 
     from: pos,
     to,
     path,
+    headings,
+    tacking,
     heading,
     twa,
     target,
@@ -163,12 +176,23 @@ export function simulate(pos: Pt, boat: BoatMotion, plan: Plan, windAt: (p: Pt) 
 /** Length of a path, cells. */
 export const pathLength = (path: Pt[]) => path.reduce((sum, p, i) => (i ? sum + dist(path[i - 1], p) : 0), 0)
 
-/** A point along a path, by fraction of its points (they're evenly spaced in time). */
-export function pathAt(path: Pt[], t: number): Pt {
-  const n = path.length - 1
-  if (n <= 0) return path[0]
-  const k = clamp(t, 0, 1) * n
-  const i = Math.min(n - 1, Math.floor(k))
-  const f = k - i
-  return add(path[i], scale({ x: path[i + 1].x - path[i].x, y: path[i + 1].y - path[i].y }, f))
+/**
+ * A move at `k` samples into the turn (`k * SAMPLE` seconds): where the boat is, which way it points, and
+ * whether it's tacking. A path cut short by the shore holds its last point.
+ */
+export function moveAt(m: Pick<Move, "path" | "headings" | "tacking">, k: number): { pos: Pt; heading: number; tacked: boolean } {
+  const n = m.path.length - 1
+  const at = clamp(k, 0, n)
+  const i = Math.min(Math.max(n - 1, 0), Math.floor(at))
+  const f = n > 0 ? at - i : 0
+  const p0 = m.path[i]
+  const p1 = m.path[Math.min(i + 1, n)]
+  const h0 = m.headings[i]
+  const h1 = m.headings[Math.min(i + 1, n)]
+  const s = clamp(k, 0, m.headings.length - 1) * SAMPLE
+  return {
+    pos: add(p0, scale({ x: p1.x - p0.x, y: p1.y - p0.y }, f)),
+    heading: (((h0 + angleDiff(h1, h0) * f) % 360) + 360) % 360,
+    tacked: m.tacking !== null && s >= m.tacking.from && s <= m.tacking.to,
+  }
 }
