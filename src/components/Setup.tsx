@@ -3,7 +3,7 @@ import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "@ui-sdk/solid
 import { Input } from "@ui-sdk/solid/input"
 import { createSignal, For, Show } from "solid-js"
 import { type BoatClassId, boatClass, DEFAULT_BOAT, FLEET, WIND_BAND_LABEL, windBand } from "../game/fleet.ts"
-import { type CourseKind, describeConfig, type IslandDensity, type MapSize, type RaceConfig, randomConfig, type Weather } from "../game/map.ts"
+import { type CourseKind, describeConfig, type IslandDensity, type MapSize, type RaceConfig, randomConfig, TEST_SEED, type Weather } from "../game/map.ts"
 import { parseJoinId } from "../game/multiplayer.ts"
 import type { Difficulty, Entrant } from "../game/race.ts"
 import { randomSeed } from "../game/rng.ts"
@@ -65,7 +65,7 @@ export function CoursePanel(props: { config: RaceConfig; disabled?: boolean; onC
   const editSeed = (text: string) => {
     setSeedText(text)
     const n = Number(text)
-    if (text.trim() !== "" && Number.isInteger(n) && n >= 0) set("seed", n)
+    if (text.trim() !== "" && Number.isInteger(n) && (n >= 0 || n === TEST_SEED)) set("seed", n)
   }
   return (
     <Panel title="Race" class="space-y-3">
@@ -190,6 +190,8 @@ export function CoursePanel(props: { config: RaceConfig; disabled?: boolean; onC
               <span class="mb-1 block text-sm font-medium">Map number</span>
               <Input
                 type="number"
+                min={TEST_SEED}
+                step={1}
                 value={seedText() ?? String(props.config.seed)}
                 disabled={props.disabled}
                 onValueChange={editSeed}

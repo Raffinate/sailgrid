@@ -3,11 +3,11 @@ import { chooseMove, route, timeToFinish } from "./ai.ts"
 import { maneuver, moveAt, SAMPLE, simulate, tackOf } from "./boat.ts"
 import { boatClass, FLEET, windBand } from "./fleet.ts"
 import { angleDiff, bearing, closestApproach, dirVec, segmentCross } from "./geom.ts"
-import { defaultConfig, describeConfig, type GameMap, generateMap, isWater, MAP_SIZES, type RaceConfig, randomConfig, startingPositions, type Weather } from "./map.ts"
+import { defaultConfig, describeConfig, type GameMap, generateMap, isWater, MAP_SIZES, type RaceConfig, randomConfig, startingPositions, TEST_SEED, type Weather } from "./map.ts"
 import { mulberry32 } from "./rng.ts"
 import { crossGates, crossGatesPath, type Entrant, newRace, type RaceState, resolveTurn, rightOfWay, standings } from "./race.ts"
 import { BOAT_LENGTH_METERS, CELL_METERS, CELLS_PER_KNOT, TURN_SECONDS } from "./units.ts"
-import { behindFront, behindLine, CARRY, eddiesAt, frontOf, frontRoughness, windAt, windField, windLinesAt, windLineWeight, windSampler } from "./wind.ts"
+import { behindFront, behindLine, CARRY, eddiesAt, frontOf, frontRoughness, windAt, windField, windLinesAt, windLineWeight, windSampler, WIND_MAX, WIND_MIN } from "./wind.ts"
 
 const first = boatClass("j-35")
 const polar = first.polar
@@ -573,4 +573,22 @@ describe("AI race", () => {
     ])
     for (const b of state.boats) expect(b.finish).not.toBeNull()
   }, 60_000)
+})
+
+describe("test map", () => {
+  it("is open water with an east wind, lightest in the north and strongest in the south", () => {
+    for (const course of ["windward-leeward", "triangle", "islands"] as const) {
+      const m = generateMap({ ...defaultConfig(TEST_SEED), course, islands: "many", weather: "stormy" })
+      expect(m.h.every((v) => v <= 0)).toBe(true)
+      for (const turn of [0, 13, 40]) {
+        const f = windField(m, turn)
+        expect(f.from.every((d) => d === 90)).toBe(true)
+        for (let x = 0; x < m.width; x += 17) {
+          expect(f.speed[x]).toBeCloseTo(WIND_MIN)
+          expect(f.speed[(m.height - 1) * m.width + x]).toBeCloseTo(WIND_MAX)
+          for (let y = 1; y < m.height; y++) expect(f.speed[y * m.width + x]).toBeGreaterThan(f.speed[(y - 1) * m.width + x])
+        }
+      }
+    }
+  })
 })

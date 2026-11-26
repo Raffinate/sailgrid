@@ -60,15 +60,17 @@ export function HelpDialog(props: { open: boolean; onOpenChange: (open: boolean)
           </p>
           <H>Wind</H>
           <p>
-            Each intersection has its own wind: the arrows show direction and strength; darker water is a puff, lighter a
-            lull. Puffs travel downwind at most of the wind's speed, so look upwind to see what's coming. They grow and
+            Each intersection has its own wind. The arrows show its direction and strength: longer the stronger it is,
+            and coloured from blue in light air through green and yellow to red at 30 knots. The water is shaded more
+            where it's windier; the scales under the chart give both in knots. Puffs (patches of stronger wind) and
+            lulls travel downwind at most of the wind's speed, so look upwind to see what's coming. They grow and
             fade over a few minutes, and they veer (swing clockwise) while lulls back. The breeze also swings back and
             forth, and each shift reaches the boats further upwind first. One side of the course can be a little windier
             than the other. Islands cast wind shadow downwind (further behind higher land, and gusty inside it), the wind
             speeds up between islands and round headlands, and it bends along a shore it blows onto.
           </p>
           <p class="mt-2">
-            A few times a race a new breeze fills in: a band of darker (or lighter) water moving down the course. Once
+            A few times a race a new breeze fills in: a band of stronger (or lighter) wind moving down the course. Once
             its edge reaches you the wind has shifted 10–25° and is usually stronger, and it stays that way for several
             turns before the old breeze comes back. Spot it upwind and set up for it.
           </p>

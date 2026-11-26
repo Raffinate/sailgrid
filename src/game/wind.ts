@@ -1,5 +1,5 @@
 import { bearing, clamp, dirVec, dot, type Pt } from "./geom.ts"
-import type { GameMap, Weather } from "./map.ts"
+import { type GameMap, isTestMap, type Weather } from "./map.ts"
 import { fbm3, hash, mulberry32, noise1, valueNoise } from "./rng.ts"
 import { CELLS_PER_KNOT } from "./units.ts"
 
@@ -467,11 +467,22 @@ function eddyFlow(eddies: Eddy[], x: number, y: number): Pt {
 
 const norm = (a: number) => ((a % 360) + 360) % 360
 
+/** The lightest and strongest wind anywhere, knots. */
+export const WIND_MIN = 0.5
+export const WIND_MAX = 35
+
+/** The test map's wind: always from due east, WIND_MIN along the north edge rising evenly to WIND_MAX along the south. */
+function testSampler(m: GameMap): { at: (x: number, y: number) => Wind; baseFrom: number; baseSpeed: number } {
+  const speedAt = (y: number) => WIND_MIN + ((WIND_MAX - WIND_MIN) * y) / Math.max(1, m.height - 1)
+  return { at: (_x, y) => ({ from: 90, speed: speedAt(y) }), baseFrom: 90, baseSpeed: speedAt((m.height - 1) / 2) }
+}
+
 /**
  * The wind this turn, one intersection at a time: what `windField` computes for every intersection on the
  * map. Tests that only look at a few places use it directly, which is much quicker than the whole field.
  */
 export function windSampler(m: GameMap, turn: number): { at: (x: number, y: number) => Wind; baseFrom: number; baseSpeed: number } {
+  if (isTestMap(m.config)) return testSampler(m)
   const p = params(m)
   const { width, height } = m
   const seed = m.config.seed
@@ -636,7 +647,7 @@ export function windSampler(m: GameMap, turn: number): { at: (x: number, y: numb
         }
       }
     }
-    return { from: ((f % 360) + 360) % 360, speed: clamp(w, 0.5, 35) }
+    return { from: ((f % 360) + 360) % 360, speed: clamp(w, WIND_MIN, WIND_MAX) }
   }
   return { at, ...baseAtCenter() }
 }

@@ -29,6 +29,13 @@ export interface RaceConfig {
   front?: boolean
 }
 
+/**
+ * Map number −1: a test chart. Open water, and the wind always from due east, lightest along the north
+ * edge and strongest along the south, steadily in between, with no shifts, puffs, lines, eddies or fronts.
+ */
+export const TEST_SEED = -1
+export const isTestMap = (c: RaceConfig) => c.seed === TEST_SEED
+
 export const defaultConfig = (seed: number): RaceConfig => ({
   seed,
   size: "medium",
@@ -121,6 +128,13 @@ const COURSE_LABEL: Record<CourseKind, string> = {
 
 /** One line on what a race will be like: "Triangle · 2 laps · 16 kn, unsettled · few islands · medium map". */
 export function describeConfig(c: RaceConfig): string {
+  if (isTestMap(c))
+    return [
+      "Test map",
+      COURSE_LABEL[c.course] + (c.course === "islands" ? "" : ` · ${c.laps} ${c.laps === 1 ? "lap" : "laps"}`),
+      "east wind, light in the north to strong in the south",
+      `${c.size} map`,
+    ].join(" · ")
   return [
     COURSE_LABEL[c.course] + (c.course === "islands" ? "" : ` · ${c.laps} ${c.laps === 1 ? "lap" : "laps"}`),
     `${c.windSpeed} kn, ${c.weather}`,
@@ -420,9 +434,11 @@ function linePoints(a: Pt, b: Pt, step = 2): Pt[] {
 }
 
 export function generateMap(cfg: RaceConfig): GameMap {
+  const test = isTestMap(cfg)
+  if (test) cfg = { ...cfg, islands: "none" }
   const { width, height } = MAP_SIZES[cfg.size]
   const rnd = mulberry32(hash(cfg.seed, 1))
-  const windFrom = Math.round(rnd() * 360) % 360
+  const windFrom = test ? 90 : Math.round(rnd() * 360) % 360
   for (let attempt = 0; attempt < 16; attempt++) {
     const density = attempt < 15 ? cfg.islands : "none"
     const h = islandField({ ...cfg, islands: density }, width, height, attempt)

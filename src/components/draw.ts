@@ -1,5 +1,5 @@
 import { boomAngle, type Move } from "../game/boat.ts"
-import { dirVec, lerp, type Pt, scale, sub } from "../game/geom.ts"
+import { dirVec, lerp, type Pt, sub } from "../game/geom.ts"
 import type { GameMap, Gate } from "../game/map.ts"
 import type { Boat } from "../game/race.ts"
 import type { WindField } from "../game/wind.ts"
@@ -13,9 +13,10 @@ export interface Palette {
   gridMajor: string
   land: string
   landEdge: string
-  puff: string
-  lull: string
-  windArrow: string
+  /** Water shading by knots: the colour of the strongest wind (darker than the water, or lighter in the dark theme). */
+  shade: string
+  /** Lightness and chroma ("L C") of the wind-speed colour scale in this theme. */
+  windScale: string
   course: string
   line: string
   mark: string
@@ -34,9 +35,8 @@ export function readPalette(): Palette {
     gridMajor: v("grid-major"),
     land: v("land"),
     landEdge: v("land-edge"),
-    puff: v("puff"),
-    lull: v("lull"),
-    windArrow: v("wind-arrow"),
+    shade: v("shade"),
+    windScale: v("wind-scale"),
     course: v("course"),
     line: v("line"),
     mark: v("mark"),
@@ -243,21 +243,63 @@ function label(ctx: CanvasRenderingContext2D, text: string, p: Pt, c: Palette, s
 
 // ---- Wind layer ---------------------------------------------------------------------------------
 
+/**
+ * The wind-chart colour scale, as knots → hue: blue in light air, through cyan, green, yellow and orange to
+ * red at 30 kn and magenta beyond. Hue alone carries the speed (the lightness is the theme's), so it's
+ * hard to read with red–green colour blindness; the water shading and the arrow length carry it too.
+ */
+export const WIND_HUES: [number, number][] = [
+  [0, 265],
+  [5, 230],
+  [10, 190],
+  [15, 145],
+  [20, 100],
+  [25, 55],
+  [30, 25],
+  [35, -10],
+]
+
+export function windHue(knots: number): number {
+  const [k0, h0] = WIND_HUES[0]
+  if (knots <= k0) return h0
+  for (let j = 1; j < WIND_HUES.length; j++) {
+    const [k1, h1] = WIND_HUES[j]
+    if (knots <= k1) {
+      const [ka, ha] = WIND_HUES[j - 1]
+      return (((ha + ((h1 - ha) * (knots - ka)) / (k1 - ka)) % 360) + 360) % 360
+    }
+  }
+  return (WIND_HUES[WIND_HUES.length - 1][1] + 360) % 360
+}
+
+/** A speed's colour; `scale` is the theme's "L C" (Palette.windScale, or `var(--wind-scale)` in CSS). */
+export const windColor = (scale: string, knots: number, alpha = 1) => `oklch(${scale} ${windHue(knots).toFixed(1)} / ${alpha})`
+
+/** This speed (and anything stronger) gets the strongest water shading. */
+export const SHADE_FULL_KNOTS = 30
+/** How strong that is: the shade colour's opacity over the water. */
+export const SHADE_MAX_ALPHA = 0.6
+
+/** This speed (and anything stronger) draws the longest arrow; half of it, half the shaft. */
+export const ARROW_FULL_KNOTS = 30
+const ARROW_WIDTH = 1.25
+const ARROW_HEAD_LENGTH = 4.5
+const ARROW_HEAD_HALF_WIDTH = 2.6
+
 export function drawWind(ctx: CanvasRenderingContext2D, m: GameMap, v: Viewport, c: Palette, f: WindField) {
   const W = m.width
-  // Puffs darker, lulls lighter: shade each intersection by how its speed compares with the base wind,
-  // one pixel per intersection on a small canvas, then scaled up smoothly.
+  // The water shaded by speed in knots, from none at 0 kn to the strongest at SHADE_FULL_KNOTS: one pixel
+  // per intersection on a small canvas, then scaled up smoothly.
   const small = document.createElement("canvas")
   small.width = W
   small.height = m.height
   const sc = small.getContext("2d")!
+  sc.fillStyle = c.shade
   for (let y = 0; y < m.height; y++)
     for (let x = 0; x < W; x++) {
       const i = y * W + x
-      const r = f.speed[i] / f.baseSpeed - 1
-      if (m.h[i] > 0 || Math.abs(r) < 0.03) continue
-      sc.fillStyle = r > 0 ? c.puff : c.lull
-      sc.globalAlpha = r > 0 ? Math.min(0.3, r * 0.6) : Math.min(0.6, -r * 0.85)
+      if (m.h[i] > 0) continue
+      sc.globalAlpha = SHADE_MAX_ALPHA * Math.min(1, f.speed[i] / SHADE_FULL_KNOTS)
       sc.fillRect(x, y, 1, 1)
     }
   ctx.save()
@@ -277,30 +319,41 @@ export function drawWind(ctx: CanvasRenderingContext2D, m: GameMap, v: Viewport,
   ctx.lineCap = "round"
   ctx.stroke(land.coast)
   ctx.restore()
-  // Arrows on a coarser lattice, pointing where the wind blows, longer where it's stronger.
+  // Arrows on a coarser lattice, pointing where the wind blows, coloured by speed, with the shaft in
+  // proportion to it. The head comes on top, so even the longest arrow, head and all, fits its slot.
   const k = Math.max(3, Math.ceil(26 / v.cell))
-  ctx.strokeStyle = c.windArrow
-  ctx.fillStyle = c.windArrow
-  ctx.lineWidth = 1.25
+  const room = Math.max(0, k * v.cell * 0.8 - ARROW_HEAD_LENGTH)
   for (let y = Math.floor(k / 2); y < m.height; y += k)
     for (let x = Math.floor(k / 2); x < W; x += k) {
       const i = y * W + x
       if (m.h[i] > 0) continue
-      const to = dirVec(f.from[i] + 180)
-      const l = Math.min(k * v.cell * 0.8, k * v.cell * 0.42 * (f.speed[i] / f.baseSpeed))
+      const kn = f.speed[i]
+      ctx.fillStyle = windColor(c.windScale, kn, 0.9)
+      const l = ARROW_HEAD_LENGTH + room * Math.min(1, Math.max(0, kn) / ARROW_FULL_KNOTS)
       const p = toPx(v, { x, y })
-      const tail = { x: p.x - (to.x * l) / 2, y: p.y - (to.y * l) / 2 }
-      const tip = { x: p.x + (to.x * l) / 2, y: p.y + (to.y * l) / 2 }
+      const to = dirVec(f.from[i] + 180)
+      const n = { x: -to.y, y: to.x }
+      const at = (along: number, across: number) => ({
+        x: p.x + to.x * along + n.x * across,
+        y: p.y + to.y * along + n.y * across,
+      })
+      // One outline, shaft and head together, so the translucent colour never doubles up where they meet.
+      const tail = -l / 2
+      const tip = l / 2
+      const base = tip - ARROW_HEAD_LENGTH
+      const shaft = ARROW_WIDTH / 2
+      const outline = [
+        at(tail, shaft),
+        at(base, shaft),
+        at(base, ARROW_HEAD_HALF_WIDTH),
+        at(tip, 0),
+        at(base, -ARROW_HEAD_HALF_WIDTH),
+        at(base, -shaft),
+        at(tail, -shaft),
+      ]
       ctx.beginPath()
-      ctx.moveTo(tail.x, tail.y)
-      ctx.lineTo(tip.x, tip.y)
-      ctx.stroke()
-      const back = scale(to, -4.5)
-      const side = { x: -to.y * 2.6, y: to.x * 2.6 }
-      ctx.beginPath()
-      ctx.moveTo(tip.x, tip.y)
-      ctx.lineTo(tip.x + back.x + side.x, tip.y + back.y + side.y)
-      ctx.lineTo(tip.x + back.x - side.x, tip.y + back.y - side.y)
+      ctx.moveTo(outline[0].x, outline[0].y)
+      for (const q of outline.slice(1)) ctx.lineTo(q.x, q.y)
       ctx.closePath()
       ctx.fill()
     }
