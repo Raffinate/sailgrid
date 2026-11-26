@@ -18,7 +18,6 @@ import {
   toEntrants,
 } from "./components/Setup.tsx"
 import { ThemeToggle } from "./components/ThemeToggle.tsx"
-import { WindLegend } from "./components/WindLegend.tsx"
 import { buttonClass, Kbd, Panel } from "./components/ui.tsx"
 import type { Plan } from "./game/boat.ts"
 import { type BoatClassId, DEFAULT_BOAT, FLEET } from "./game/fleet.ts"
@@ -417,9 +416,6 @@ export function App() {
                 <input type="checkbox" checked={showNames()} onChange={(e) => setShowNames(e.currentTarget.checked)} class="accent-current" />
                 Show names
               </label>
-              <Show when={showWind()}>
-                <WindLegend />
-              </Show>
               <Show when={shown().state}>
                 {(s) => (
                   <span class="tabular-nums">

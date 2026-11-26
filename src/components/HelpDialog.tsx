@@ -62,8 +62,8 @@ export function HelpDialog(props: { open: boolean; onOpenChange: (open: boolean)
           <p>
             Each intersection has its own wind. The arrows show its direction and strength: longer the stronger it is,
             and coloured from blue in light air through green and yellow to red at 30 knots. The water is shaded more
-            where it's windier; the scales under the chart give both in knots. Puffs (patches of stronger wind) and
-            lulls travel downwind at most of the wind's speed, so look upwind to see what's coming. They grow and
+            where it's windier. Puffs (patches of stronger wind) and lulls travel downwind at most of the wind's speed,
+            so look upwind to see what's coming. They grow and
             fade over a few minutes, and they veer (swing clockwise) while lulls back. The breeze also swings back and
             forth, and each shift reaches the boats further upwind first. One side of the course can be a little windier
             than the other. Islands cast wind shadow downwind (further behind higher land, and gusty inside it), the wind

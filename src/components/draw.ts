@@ -248,7 +248,7 @@ function label(ctx: CanvasRenderingContext2D, text: string, p: Pt, c: Palette, s
  * red at 30 kn and magenta beyond. Hue alone carries the speed (the lightness is the theme's), so it's
  * hard to read with red–green colour blindness; the water shading and the arrow length carry it too.
  */
-export const WIND_HUES: [number, number][] = [
+const WIND_HUES: [number, number][] = [
   [0, 265],
   [5, 230],
   [10, 190],
@@ -259,7 +259,7 @@ export const WIND_HUES: [number, number][] = [
   [35, -10],
 ]
 
-export function windHue(knots: number): number {
+function windHue(knots: number): number {
   const [k0, h0] = WIND_HUES[0]
   if (knots <= k0) return h0
   for (let j = 1; j < WIND_HUES.length; j++) {
@@ -272,13 +272,13 @@ export function windHue(knots: number): number {
   return (WIND_HUES[WIND_HUES.length - 1][1] + 360) % 360
 }
 
-/** A speed's colour; `scale` is the theme's "L C" (Palette.windScale, or `var(--wind-scale)` in CSS). */
-export const windColor = (scale: string, knots: number, alpha = 1) => `oklch(${scale} ${windHue(knots).toFixed(1)} / ${alpha})`
+/** A speed's colour; `scale` is the theme's "L C" (Palette.windScale). */
+const windColor = (scale: string, knots: number, alpha = 1) => `oklch(${scale} ${windHue(knots).toFixed(1)} / ${alpha})`
 
 /** This speed (and anything stronger) gets the strongest water shading. */
-export const SHADE_FULL_KNOTS = 30
+const SHADE_FULL_KNOTS = 30
 /** How strong that is: the shade colour's opacity over the water. */
-export const SHADE_MAX_ALPHA = 0.6
+const SHADE_MAX_ALPHA = 0.6
 
 /** This speed (and anything stronger) draws the longest arrow; half of it, half the shaft. */
 export const ARROW_FULL_KNOTS = 30
