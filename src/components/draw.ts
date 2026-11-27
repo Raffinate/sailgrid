@@ -157,7 +157,8 @@ export function drawCourse(ctx: CanvasRenderingContext2D, m: GameMap, v: Viewpor
   // Start / finish line, with the committee boat and the pin.
   const [a, b] = m.startLine.map((p) => toPx(v, p))
   const lineActive = nextGate !== null && (m.gates[nextGate]?.kind === "start" || m.gates[nextGate]?.kind === "finish")
-  ctx.strokeStyle = lineActive ? c.good : c.line
+  // In the text colour, like its arrows; bolder while it's the next line to cross.
+  ctx.strokeStyle = c.foreground
   ctx.lineWidth = lineActive ? 2.5 : 1.75
   ctx.setLineDash([2, 3])
   ctx.beginPath()
@@ -185,8 +186,9 @@ export function drawCourse(ctx: CanvasRenderingContext2D, m: GameMap, v: Viewpor
     const active = nextGate !== null && m.gates[nextGate] === g
     const tail = { x: p.x - d.x * 9, y: p.y - d.y * 9 }
     const tip = { x: p.x + d.x * 9, y: p.y + d.y * 9 }
-    ctx.strokeStyle = active ? c.good : c.line
-    ctx.fillStyle = active ? c.good : c.line
+    // In the text colour (black, or white on the dark theme), so they don't read as wind arrows.
+    ctx.strokeStyle = c.foreground
+    ctx.fillStyle = c.foreground
     ctx.lineWidth = 1.5
     ctx.beginPath()
     ctx.moveTo(tail.x, tail.y)
