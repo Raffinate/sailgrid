@@ -38,6 +38,10 @@ interface BoardProps {
   /** Lines of equal wind speed at the 20th, 50th and 80th percentile of this turn's wind (with the wind shown). */
   showIsotachs: boolean
   showNames: boolean
+  /** The boats' tracks so far. */
+  showPaths: boolean
+  /** Draw only these boats (and their tracks and names); null draws them all. */
+  onlyBoats: number[] | null
   onAim?: (heading: number) => void
 }
 
@@ -53,6 +57,8 @@ interface Frame {
   showWind: boolean
   showIsotachs: boolean
   showNames: boolean
+  showPaths: boolean
+  onlyBoats: number[] | null
 }
 
 /** The chart, drawn on a canvas. Click or drag on it to aim the active boat. */
@@ -140,17 +146,20 @@ export function Board(props: BoardProps) {
       const heading = wake[i + 1].x === wake[i].x && wake[i + 1].y === wake[i].y ? null : bearing(wake[i], wake[i + 1])
       return { at, heading, upTo: n - 2, tail: [...wake.slice(1, i + 1), at] }
     }
-    for (const b of state.boats) {
-      const w = where(b.id)
-      drawTrack(ctx, v, b, w.upTo, w.tail, !racing(b))
-    }
+    const only = frame.onlyBoats
+    const boats = only ? state.boats.filter((b) => only.includes(b.id)) : state.boats
+    if (frame.showPaths)
+      for (const b of boats) {
+        const w = where(b.id)
+        drawTrack(ctx, v, b, w.upTo, w.tail, !racing(b))
+      }
     // Names under the planned move and the boats, so they never hide either.
-    if (frame.showNames && v.cell >= 5) for (const b of state.boats) drawBoatName(ctx, v, c, b.name, where(b.id).at, !racing(b))
+    if (frame.showNames && v.cell >= 5) for (const b of boats) drawBoatName(ctx, v, c, b.name, where(b.id).at, !racing(b))
     if (frame.preview && t >= 1 && frame.active !== null) {
       const b = state.boats[frame.active]
       drawPreview(ctx, v, c, b.color, frame.preview.move, frame.preview.stop, frame.preview.aground)
     }
-    for (const b of state.boats) {
+    for (const b of boats) {
       const w = where(b.id)
       const plan = frame.active === b.id && frame.preview && t >= 1 ? frame.preview.move : null
       drawBoat(
@@ -181,6 +190,8 @@ export function Board(props: BoardProps) {
       showWind: props.showWind,
       showIsotachs: props.showIsotachs,
       showNames: props.showNames,
+      showPaths: props.showPaths,
+      onlyBoats: props.onlyBoats,
     }),
     (f) => {
       frame = f

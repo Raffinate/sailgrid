@@ -71,6 +71,8 @@ export function App() {
   const [showWind, setShowWind] = createSignal(true)
   const [showIsotachs, setShowIsotachs] = createSignal(true)
   const [showNames, setShowNames] = createSignal(true)
+  const [showPaths, setShowPaths] = createSignal(true)
+  const [showOthers, setShowOthers] = createSignal(true)
   const session = new Session((s) => setSnap(s))
   // Debugging from the browser console: `copy(sailgrid.trace())` copies the race so far as JSON.
   ;(globalThis as { sailgrid?: unknown }).sailgrid = { trace: () => session.trace() }
@@ -163,6 +165,15 @@ export function App() {
   const activeBoat = createMemo(() => {
     const s = snap()
     return s.active !== null && s.state && !s.handoff && !s.resolving ? s.state.boats[s.active] : null
+  })
+  // With other boats hidden: the boat at the helm, or else this device's own boats. A device with
+  // none (watching the computer race) still sees them all.
+  const onlyBoats = createMemo(() => {
+    if (showOthers()) return null
+    const b = activeBoat()
+    if (b) return [b.id]
+    const mine = snap().mine
+    return mine.length ? mine : null
   })
 
   // The plan being set up for the active boat: starts from its current heading and sheet each turn.
@@ -373,6 +384,8 @@ export function App() {
                   showWind={showWind()}
                   showIsotachs={showIsotachs()}
                   showNames={showNames()}
+                  showPaths={showPaths()}
+                  onlyBoats={onlyBoats()}
                   onAim={(heading) => setPlan({ heading })}
                 />
               )}
@@ -433,6 +446,14 @@ export function App() {
               <label class="inline-flex cursor-pointer items-center gap-1.5">
                 <input type="checkbox" checked={showNames()} onChange={(e) => setShowNames(e.currentTarget.checked)} class="accent-current" />
                 Show names
+              </label>
+              <label class="inline-flex cursor-pointer items-center gap-1.5">
+                <input type="checkbox" checked={showPaths()} onChange={(e) => setShowPaths(e.currentTarget.checked)} class="accent-current" />
+                Show paths
+              </label>
+              <label class="inline-flex cursor-pointer items-center gap-1.5" title="Hide every boat but the one at the helm (or your own)">
+                <input type="checkbox" checked={showOthers()} onChange={(e) => setShowOthers(e.currentTarget.checked)} class="accent-current" />
+                Show other boats
               </label>
               <Show when={shown().state}>
                 {(s) => (
