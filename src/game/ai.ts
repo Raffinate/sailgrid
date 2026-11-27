@@ -174,7 +174,7 @@ function computeRoute(m: GameMap, turn: number, cls: BoatClass): Route {
   const finish = gates[G - 1]
   for (let u = 0; u < N; u++)
     for (let k = 0; k < K; k++) {
-      if (finish[u * K + k] === 0 || steps[u * K + k] === Infinity) continue
+      if (finish[u * K + k] !== 1 || steps[u * K + k] === Infinity) continue
       const x = u % W
       const y = (u - x) / W
       const c = segmentCross({ x, y }, { x: x + OFFSETS[k].x, y: y + OFFSETS[k].y }, fin.a, fin.b)
@@ -204,8 +204,10 @@ function computeRoute(m: GameMap, turn: number, cls: BoatClass): Route {
       const step = steps[e]
       if (step === Infinity) continue
       const u = uy * W + ux
-      // Same layer: the step mustn't touch this layer's gate, nor cross the previous mark's ray backwards.
-      if (here[e] === 0 && !(undone && undone[e] === -1)) {
+      // Same layer: the step mustn't touch this layer's gate (bar crossing the start or finish line the wrong
+      // way, which doesn't count), nor cross the previous mark's ray backwards.
+      const stays = here[e] === 0 || (here[e] === -1 && m.gates[layer].kind !== "mark")
+      if (stays && !(undone && undone[e] === -1)) {
         const ps = layer * N + u
         if (d + step < time[ps]) {
           time[ps] = d + step

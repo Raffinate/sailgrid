@@ -69,9 +69,11 @@ that suits the day's wind and course, and then the best route round it.
   courses: windward–leeward (beats and runs, 1–3 laps), a triangle (a beat and two reaches, 1–3 laps), or
   a loop round the islands with 3–4 marks. The generator clears water around every mark and the start
   line, and checks that the course can be sailed.
-- **Course.** Cross the start line upwind, then round each mark on its side, then cross the finish. A mark
-  counts once you cross the ray running out from it, away from the course, in the right direction; going
-  round the wrong way has to be undone first.
+- **Course.** Cross the start line upwind, then round each mark on its side, then cross the finish line
+  from the course side (the side of the last mark), as in the racing rules. A mark counts once you cross the
+  ray running out from it, away from the course, in the right direction; going round the wrong way has to
+  be undone first. Crossing the start or finish line the wrong way just doesn't count. The chart labels
+  "Start" and "Finish" on the side they're crossed from, with an arrow the way across that counts.
 - **Racing rules.** Simplified Racing Rules of Sailing, checked each turn (`src/game/race.ts`). Two boats
   that come within 0.8 of a cell of each other during a turn have met:
   - rule 10: port tack keeps clear of starboard tack;

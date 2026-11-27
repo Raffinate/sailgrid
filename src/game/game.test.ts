@@ -510,6 +510,33 @@ describe("course progress", () => {
     expect(crossGatesPath(m, 0, 0, [at(3), at(-3), at(3)]).next).toBe(1)
   })
 
+  it("finishes a boat only when it crosses the line from the course side, coming from the last mark", () => {
+    const fin = m.gates.length - 1
+    const [a, b] = m.finishLine
+    const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
+    const last = m.gates[fin - 1].mark!
+    // A unit step across the line, away from the last mark's side.
+    const n = { x: -(b.y - a.y), y: b.x - a.x }
+    const k = Math.hypot(n.x, n.y) * Math.sign(n.x * (mid.x - last.x) + n.y * (mid.y - last.y))
+    const at = (t: number) => ({ x: mid.x + (n.x / k) * t, y: mid.y + (n.y / k) * t })
+    expect(crossGates(m, fin, 0, at(-3), at(3)).finishedAt).not.toBeNull()
+    // The wrong way across it doesn't finish, nor does it leave anything to undo.
+    expect(crossGates(m, fin, 0, at(3), at(-3))).toMatchObject({ next: fin, unwind: 0, finishedAt: null })
+    expect(crossGatesPath(m, fin, 0, [at(3), at(-3), at(3)]).finishedAt).not.toBeNull()
+  })
+
+  it("finishes every course from the side of its last mark", () => {
+    for (const course of ["windward-leeward", "triangle", "islands"] as const)
+      for (let seed = 0; seed < 10; seed++) {
+        const map = generateMap({ ...defaultConfig(seed), course, islands: course === "islands" ? "few" : "none" })
+        const g = map.gates[map.gates.length - 1]
+        const last = map.gates[map.gates.length - 2].mark!
+        const side = Math.sign((g.b.x - g.a.x) * (last.y - g.a.y) - (g.b.y - g.a.y) * (last.x - g.a.x))
+        // Crossing from the last mark's side means moving toward the other side.
+        expect(g.sign, `${course} ${seed}`).toBe(-side)
+      }
+  })
+
   it("takes the rounding back when a boat crosses the ray and turns back", () => {
     const mark = m.gates[1].mark!
     const up = dirVec(m.windFrom)

@@ -542,7 +542,11 @@ function buildMap(
       side,
     })
   })
-  gates.push({ kind: "finish", a: la, b: lb, sign: 0, label: "Finish" })
+  // As in the racing rules, a boat finishes crossing the line from the course side: the side it comes
+  // from after the last mark, so the way across it from there.
+  const lastMark = layout.marks[layout.marks.length - 1]?.pos ?? add(startCenter, u)
+  const finishSign = Math.sign(cross(sub(lb, la), sub(startCenter, lastMark))) || upSign
+  gates.push({ kind: "finish", a: la, b: lb, sign: finishSign as -1 | 1, label: "Finish" })
   const marks: Pt[] = []
   for (const m of layout.marks) if (!marks.some((p) => p.x === m.pos.x && p.y === m.pos.y)) marks.push(m.pos)
   return {

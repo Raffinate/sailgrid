@@ -147,9 +147,10 @@ export function crossGates(map: GameMap, next: number, unwind: number, from: Pt,
         next++
         if (g.kind === "finish") return { next, unwind: 0, finishedAt: tAbs }
       }
-    } else if (g.kind !== "start") unwind++
-    // Back over the start line the wrong way is a boat that slipped round its end returning to the
-    // pre-start side, where it belongs: nothing to undo, its next crossing starts it.
+    } else if (g.kind === "mark") unwind++
+    // Over the start or finish line the wrong way doesn't count, and there's nothing to undo: a boat that
+    // slipped round an end of the start line is back on the pre-start side where it belongs, and one on
+    // the far side of the finish line is back on the course side; its next crossing the right way counts.
     t0 = tAbs + 1e-6
     if (t0 >= 1) break
   }

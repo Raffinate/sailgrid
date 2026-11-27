@@ -171,8 +171,35 @@ export function drawCourse(ctx: CanvasRenderingContext2D, m: GameMap, v: Viewpor
     ctx.arc(p.x, p.y, 3.5, 0, Math.PI * 2)
     ctx.fill()
   }
-  const mid = lerp(a, b, 0.5)
-  label(ctx, "Start · Finish", { x: mid.x, y: mid.y + 14 }, c, 11)
+  // "Start" and "Finish" each on the side boats cross from, with an arrow across the line the way that
+  // counts (the finish's from the side of the last mark): a third and two thirds of the way along it.
+  const span = Math.hypot(b.x - a.x, b.y - a.y) || 1
+  const across = { x: -(b.y - a.y) / span, y: (b.x - a.x) / span }
+  const crossings: [Gate, number][] = [
+    [m.gates[0], 1 / 3],
+    [m.gates[m.gates.length - 1], 2 / 3],
+  ]
+  for (const [g, t] of crossings) {
+    const p = lerp(a, b, t)
+    const d = { x: across.x * (g.sign || 1), y: across.y * (g.sign || 1) }
+    const active = nextGate !== null && m.gates[nextGate] === g
+    const tail = { x: p.x - d.x * 9, y: p.y - d.y * 9 }
+    const tip = { x: p.x + d.x * 9, y: p.y + d.y * 9 }
+    ctx.strokeStyle = active ? c.good : c.line
+    ctx.fillStyle = active ? c.good : c.line
+    ctx.lineWidth = 1.5
+    ctx.beginPath()
+    ctx.moveTo(tail.x, tail.y)
+    ctx.lineTo(tip.x - d.x * 3, tip.y - d.y * 3)
+    ctx.stroke()
+    ctx.beginPath()
+    ctx.moveTo(tip.x, tip.y)
+    ctx.lineTo(tip.x - d.x * 5 - d.y * 3.5, tip.y - d.y * 5 + d.x * 3.5)
+    ctx.lineTo(tip.x - d.x * 5 + d.y * 3.5, tip.y - d.y * 5 - d.x * 3.5)
+    ctx.closePath()
+    ctx.fill()
+    label(ctx, g.label, { x: p.x - d.x * 20, y: p.y - d.y * 20 }, c, 11, active)
+  }
 
   // Marks, numbered in the order they're rounded, with an arrow for the rounding direction.
   const r = Math.max(4.5, v.cell * 0.55)

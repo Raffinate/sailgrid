@@ -88,7 +88,9 @@ export function HelpDialog(props: { open: boolean; onOpenChange: (open: boolean)
           <H>The course</H>
           <p>
             Cross the start line upwind, then round the marks in order, leaving each one on the side its arrow shows
-            (port: the mark on your left), and cross the finish line. Hitting land stops you short.
+            (port: the mark on your left), and cross the finish line from the course side, coming from the last mark.
+            The arrows by "Start" and "Finish" show which way across the line counts; crossing it the other way
+            doesn't, and costs nothing. Hitting land stops you short.
           </p>
           <H>Racing rules and penalties</H>
           <p class="mb-2">
