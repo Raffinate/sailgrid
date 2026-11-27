@@ -9,7 +9,10 @@ import type { Message } from "./session.ts"
  */
 
 export interface HostHandlers {
+  /** The invite ID, once the PeerJS server has it, and again each time the host reconnects to that server. */
   onId: (id: string) => void
+  /** Lost the PeerJS server: nobody new can join until it's back, but the guests already in race on. */
+  onServerLost: () => void
   onJoin: (peer: string) => void
   onMessage: (peer: string, msg: Message) => void
   onLeave: (peer: string) => void
@@ -45,6 +48,12 @@ async function createPeer(): Promise<Peer> {
   return new Peer({ config: { iceServers } })
 }
 
+/**
+ * Errors about the link to the PeerJS server. That server only introduces peers: once a peer has an ID
+ * (or a connection), losing it leaves the connections already made running.
+ */
+const SERVER_ERRORS = new Set(["network", "socket-error", "socket-closed", "server-error", "disconnected", "unavailable-id"])
+
 const encode = (msg: Message) => JSON.stringify(msg)
 const decode = (raw: unknown) => JSON.parse(raw as string) as Message
 
@@ -53,7 +62,24 @@ export async function host(h: HostHandlers): Promise<HostLink> {
   const peer = await createPeer()
   const conns = new Map<string, DataConnection>()
   let closed = false
-  peer.on("open", (id) => h.onId(id))
+  let opened = false
+  // Back to the PeerJS server with the same ID, so the invite link works again; every 1, 2, 4… up to 30 seconds.
+  let retry: ReturnType<typeof setTimeout> | undefined
+  let delay = 1000
+  peer.on("open", (id) => {
+    opened = true
+    delay = 1000
+    h.onId(id)
+  })
+  peer.on("disconnected", () => {
+    if (closed || peer.destroyed) return
+    h.onServerLost()
+    clearTimeout(retry)
+    retry = setTimeout(() => {
+      if (!closed && !peer.destroyed && peer.disconnected) peer.reconnect()
+    }, delay)
+    delay = Math.min(delay * 2, 30_000)
+  })
   peer.on("connection", (conn) => {
     const id = conn.connectionId
     let gone = false
@@ -71,7 +97,9 @@ export async function host(h: HostHandlers): Promise<HostLink> {
     conn.on("close", leave)
     conn.on("error", leave)
   })
-  peer.on("error", (err) => h.onError(err.type))
+  peer.on("error", (err) => {
+    if (!(opened && SERVER_ERRORS.has(err.type))) h.onError(err.type)
+  })
   return {
     broadcast: (msg) => {
       const data = encode(msg)
@@ -80,6 +108,7 @@ export async function host(h: HostHandlers): Promise<HostLink> {
     sendTo: (id, msg) => conns.get(id)?.send(encode(msg)),
     close: () => {
       closed = true
+      clearTimeout(retry)
       peer.destroy()
     },
   }
@@ -90,6 +119,7 @@ export async function join(hostId: string, h: GuestHandlers): Promise<GuestLink>
   const peer = await createPeer()
   let closed = false
   let conn: DataConnection | null = null
+  let connected = false
   const close = () => {
     if (closed) return
     closed = true
@@ -98,7 +128,10 @@ export async function join(hostId: string, h: GuestHandlers): Promise<GuestLink>
   peer.on("open", () => {
     const c = peer.connect(hostId, { reliable: true })
     conn = c
-    c.on("open", () => h.onOpen())
+    c.on("open", () => {
+      connected = true
+      h.onOpen()
+    })
     c.on("data", (raw) => h.onMessage(decode(raw)))
     const lost = () => {
       if (!closed) h.onClose()
@@ -107,8 +140,9 @@ export async function join(hostId: string, h: GuestHandlers): Promise<GuestLink>
     c.on("close", lost)
     c.on("error", lost)
   })
+  // Once connected to the host, the PeerJS server doesn't matter any more.
   peer.on("error", (err) => {
-    if (!closed) h.onError(err.type)
+    if (!closed && !(connected && SERVER_ERRORS.has(err.type))) h.onError(err.type)
   })
   return { send: (msg) => conn?.send(encode(msg)), close }
 }

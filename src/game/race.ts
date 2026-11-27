@@ -38,6 +38,8 @@ export interface Boat extends Entrant {
   penalty: number
   /** The path sailed last turn (a curve when the boat turned), for drawing the move. */
   wake?: Pt[]
+  /** An online sailor who lost the connection (or kept everyone waiting): the AI sails until they're back. */
+  away?: boolean
 }
 
 /** Racing Rules of Sailing references, simplified. */
@@ -356,6 +358,11 @@ export function retire(state: RaceState, id: number): RaceState {
 }
 
 export const isRetired = (b: Boat) => b.next < 0
+
+/** Hand a boat to the AI while its online sailor is away, or give it back. */
+export function setAway(state: RaceState, id: number, away: boolean): RaceState {
+  return { ...state, boats: state.boats.map((b) => (b.id === id ? { ...b, away } : b)) }
+}
 
 export interface PlanPreview {
   move: Move

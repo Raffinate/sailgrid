@@ -1,5 +1,5 @@
 import { Button } from "@ui-sdk/solid/button"
-import { createEffect, createMemo, createSignal, onSettled, Show } from "solid-js"
+import { createEffect, createMemo, createSignal, For, onSettled, Show } from "solid-js"
 import { track } from "./analytics.ts"
 import { ActionBar } from "./components/ActionBar.tsx"
 import { Board } from "./components/Board.tsx"
@@ -305,6 +305,19 @@ export function App() {
     }
     return waiting.length && !activeBoat() ? `Waiting for ${waiting.map((b) => b.name).join(", ")}.` : ""
   }
+  // Host, with its own moves in: the online sailors it's still waiting for.
+  const waitingOnline = () => {
+    const s = snap()
+    if (s.mode !== "host" || !s.state || s.state.over || s.resolving || activeBoat()) return []
+    return s.state.boats.filter((b) => b.controller === "remote" && racing(b) && !b.away && !s.planned.includes(b.id))
+  }
+  // Guest, between moves: a way back to the host if the race seems stuck, or to take the boat back from the AI.
+  const guestBoat = () => {
+    const s = snap()
+    if (s.mode !== "guest" || s.phase !== "racing" || !s.state || s.state.over || activeBoat()) return null
+    const b = s.state.boats[s.mine[0]]
+    return b && racing(b) ? b : null
+  }
   const handoffBoat = () => {
     const s = snap()
     return s.handoff && s.active !== null && s.state ? s.state.boats[s.active] : null
@@ -470,6 +483,13 @@ export function App() {
         </div>
 
         <aside class="space-y-4">
+          <Show when={snap().mode === "host" && snap().serverLost}>
+            <Panel>
+              <p class="text-sm text-muted-foreground">
+                Lost the connection to the matchmaking server; reconnecting. The race carries on, but nobody can join or reconnect until it's back.
+              </p>
+            </Panel>
+          </Show>
           <Show when={snap().phase === "setup"}>
             <CoursePanel config={config()} onChange={editConfig} />
             <PlayersPanel players={players()} onChange={editPlayers} />
@@ -533,6 +553,43 @@ export function App() {
                 </div>
               </Panel>
             </Show>
+            <Show when={waitingOnline().length}>
+              <Panel title="Waiting for" class="space-y-2">
+                <p class="text-sm text-muted-foreground">If someone's connection seems stuck, the AI can sail for them until they're back.</p>
+                <For each={waitingOnline()} keyed={false}>
+                  {(b) => (
+                    <div class="flex items-center justify-between gap-2 text-sm">
+                      <span class="flex min-w-0 items-center gap-1.5">
+                        <span class="inline-block size-2.5 shrink-0 rounded-full" style={{ background: b().color }} />
+                        <span class="truncate">{b().name}</span>
+                      </span>
+                      <Button
+                        class={buttonClass.outline}
+                        onClick={() => session.sailForGuest(b().id)}
+                        data-ph-capture-attribute-action="ai-sails-for-guest"
+                      >
+                        Let the AI sail
+                      </Button>
+                    </div>
+                  )}
+                </For>
+              </Panel>
+            </Show>
+            <Show when={guestBoat()}>
+              {(b) => (
+                <Panel class="space-y-2">
+                  <p class="text-sm text-muted-foreground">
+                    {b().away
+                      ? "The AI is sailing your boat while you're away."
+                      : "Waiting too long? Reconnect to the host: your boat and the race carry on."}
+                  </p>
+                  <Button class={buttonClass.outline} onClick={() => session.rejoin()} data-ph-capture-attribute-action="rejoin">
+                    {b().away ? "Take the helm back" : "Reconnect"}
+                  </Button>
+                </Panel>
+              )}
+            </Show>
+            <Show when={snap().status}>{(t) => <p class="px-1 text-sm text-muted-foreground" aria-live="polite">{t()}</p>}</Show>
             <Show when={snap().error}>{(e) => <Panel><p class="text-sm text-danger">{e()}</p></Panel>}</Show>
             <Scoreboard
               map={snap().map!}

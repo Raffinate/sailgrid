@@ -3,7 +3,7 @@ import type { Plan } from "./boat.ts"
 import { type BoatClassId, boatClass } from "./fleet.ts"
 import { type GameMap, generateMap, type RaceConfig } from "./map.ts"
 import { type GuestLink, type HostLink, host, inviteUrl, join } from "./multiplayer.ts"
-import { type Entrant, newRace, type RaceState, racing, resolveTurn, retire } from "./race.ts"
+import { type Entrant, newRace, type RaceState, racing, resolveTurn, retire, setAway } from "./race.ts"
 
 /**
  * Runs a race for this device: local (solo, hot-seat, AI-only), hosting an online race, or joining one.
@@ -12,13 +12,21 @@ import { type Entrant, newRace, type RaceState, racing, resolveTurn, retire } fr
  * one after another (with a hand-over screen between them, so nobody sees the others' plans), and
  * remote players over the network. Then the AI boats choose and the turn is resolved. Online, the host
  * owns the race; guests send their own plans and render the state the host sends back.
+ *
+ * A guest whose connection drops (or who keeps everyone waiting, if the host says so) is "away": the AI
+ * sails their boat until they reconnect, which they do with a seat key they sent when they joined.
  */
 
 export type Mode = "local" | "host" | "guest"
 export type Phase = "setup" | "lobby" | "racing"
 
 export type Message =
-  | { type: "hello"; name: string; boat: BoatClassId }
+  /** A guest arrives, or comes back mid-race: `seat` is this device's key to its boat in this race. */
+  | { type: "hello"; name: string; boat: BoatClassId; seat?: string }
+  /** A guest leaves the race for good: the host retires their boat. */
+  | { type: "leave" }
+  /** The race has started without this guest. */
+  | { type: "late" }
   /** A guest in the lobby changes their name or boat, or says they're ready (or not, to change again). */
   | { type: "sailor"; name: string; boat: BoatClassId; ready: boolean }
   | { type: "lobby"; config: RaceConfig; entrants: Entrant[]; you: number }
@@ -50,6 +58,8 @@ export interface Snapshot {
   inviteUrl: string | null
   status: string
   error: string | null
+  /** Host: lost the PeerJS server (reconnecting). The race goes on; nobody new can join meanwhile. */
+  serverLost: boolean
 }
 
 export const BOAT_COLORS = ["#e11d48", "#2563eb", "#16a34a", "#d97706", "#7c3aed", "#0891b2", "#db2777", "#57534e"]
@@ -78,9 +88,24 @@ export const IDLE_SNAPSHOT: Snapshot = {
   inviteUrl: null,
   status: "",
   error: null,
+  serverLost: false,
 }
 
 const AUTOPLAY_MS = 450
+/** Guest: tries to get back to the host after the connection drops, waiting 1, 2, 4… seconds between them. */
+const RECONNECT_TRIES = 5
+
+/** This device's key to its boat in the race hosted at `hostId`: kept, so reopening the invite link gets the boat back. */
+function seatFor(hostId: string) {
+  const key = `sailgrid-seat:${hostId}`
+  try {
+    const seat = localStorage.getItem(key) ?? crypto.randomUUID()
+    localStorage.setItem(key, seat)
+    return seat
+  } catch {
+    return crypto.randomUUID()
+  }
+}
 
 export class Session {
   private snap: Snapshot = IDLE_SNAPSHOT
@@ -91,6 +116,16 @@ export class Session {
   private peerBoat = new Map<string, number>()
   /** Host: connections taken out of the lobby, ignored from then on. */
   private removed = new Set<string>()
+  /** Host: each guest's seat key, by connection in the lobby and then by boat. */
+  private peerSeat = new Map<string, string>()
+  private seats = new Map<number, string>()
+  /** Guest: who to reconnect to, and with which seat. */
+  private hostId: string | null = null
+  private seat = ""
+  private retries = 0
+  private retryTimer: ReturnType<typeof setTimeout> | null = null
+  /** Guest: counts connections to the host, so a replaced one's late events are ignored. */
+  private linkGen = 0
   private timer: ReturnType<typeof setTimeout> | null = null
   private generation = 0
   /**
@@ -156,12 +191,23 @@ export class Session {
   stop() {
     this.generation++
     this.clearTimer()
+    this.clearRetry()
     this.hostLink?.close()
-    this.guestLink?.close()
+    const g = this.guestLink
+    if (g && this.snap.mode === "guest" && this.snap.phase === "racing" && !this.snap.state?.over) {
+      // Leaving for good: the host retires the boat rather than keep it for this guest. Hung up a moment
+      // later, so the message gets out first.
+      g.send({ type: "leave" })
+      setTimeout(() => g.close(), 300)
+    } else g?.close()
     this.hostLink = null
     this.guestLink = null
     this.peerBoat.clear()
     this.removed.clear()
+    this.peerSeat.clear()
+    this.seats.clear()
+    this.hostId = null
+    this.retries = 0
     this.plans.clear()
     this.history = []
     this.replays.clear()
@@ -181,6 +227,11 @@ export class Session {
     const map = generateMap(config)
     const state = newRace(map, entrants)
     this.history = []
+    this.seats.clear()
+    for (const [peer, id] of this.peerBoat) {
+      const seat = this.peerSeat.get(peer)
+      if (seat) this.seats.set(id, seat)
+    }
     this.emit({
       mode,
       phase: "racing",
@@ -197,7 +248,7 @@ export class Session {
   }
 
   private waitingFor(state: RaceState) {
-    return state.boats.filter((b) => racing(b) && (b.controller === "human" || b.controller === "remote")).map((b) => b.id)
+    return state.boats.filter((b) => racing(b) && !b.away && (b.controller === "human" || b.controller === "remote")).map((b) => b.id)
   }
 
   private localTurnOrder(state: RaceState) {
@@ -273,7 +324,8 @@ export class Session {
       if (gen !== this.generation || !this.snap.state || !this.snap.map) return
       const state = this.snap.state
       const map = this.snap.map
-      for (const b of state.boats) if (racing(b) && b.controller === "ai") this.plans.set(b.id, chooseMove(map, state, b.id))
+      // The AI boats, and any online boat that's away (or came back too late for this turn).
+      for (const b of state.boats) if (racing(b) && !this.plans.has(b.id)) this.plans.set(b.id, chooseMove(map, state, b.id))
       const next = resolveTurn(map, state, this.plans)
       this.emit({ prev: state, state: next, resolving: false })
       this.beginTurn()
@@ -293,7 +345,12 @@ export class Session {
     this.emit({ mode: "host", phase: "lobby", config, entrants, status: "Setting up the connection…" })
     try {
       const link = await host({
-        onId: (id) => this.emit({ inviteUrl: inviteUrl(id), status: "Waiting for sailors to join." }),
+        onId: (id) => {
+          if (gen !== this.generation) return
+          const first = this.snap.inviteUrl === null
+          this.emit({ inviteUrl: inviteUrl(id), serverLost: false, ...(first ? { status: "Waiting for sailors to join." } : {}) })
+        },
+        onServerLost: () => gen === this.generation && this.emit({ serverLost: true }),
         onJoin: () => {},
         onMessage: (peer, msg) => this.hostReceive(peer, msg),
         onLeave: (peer) => this.peerLeft(peer),
@@ -343,8 +400,10 @@ export class Session {
     const s = this.snap
     if (this.removed.has(peer)) return
     if (msg.type === "hello") {
+      if (s.phase === "racing") return this.reclaim(peer, msg.seat)
       if (s.phase !== "lobby" || !s.config) return
       if (s.entrants.length >= MAX_BOATS) return
+      if (msg.seat) this.peerSeat.set(peer, msg.seat)
       const sailor: Entrant = { name: cleanName(msg.name), color: "", controller: "remote", peer, boat: boatClass(msg.boat).id, ready: false }
       // The lobby list (with who's still choosing) says the rest.
       if (s.status) this.emit({ status: "" })
@@ -358,6 +417,16 @@ export class Session {
         s.config,
         s.entrants.map((e) => (e.peer === peer ? { ...e, ...patch } : e)),
       )
+      return
+    }
+    if (msg.type === "leave") {
+      const id = this.peerBoat.get(peer)
+      if (id === undefined || s.phase !== "racing" || !s.state) return
+      this.peerBoat.delete(peer)
+      this.seats.delete(id)
+      this.emit({ state: retire(s.state, id), status: `${s.state.boats[id].name} left the race.` })
+      this.broadcastRace()
+      this.maybeResolve()
       return
     }
     if (msg.type === "plan") {
@@ -383,11 +452,41 @@ export class Session {
       return
     }
     if (s.state) {
+      // Dropped, not left: the AI sails until they reconnect.
       this.peerBoat.delete(peer)
-      this.emit({ state: retire(s.state, id), status: `${s.state.boats[id].name} left the race.` })
+      const b = s.state.boats[id]
+      if (!racing(b) || b.away) return
+      this.emit({ state: setAway(s.state, id, true), status: `${b.name} lost the connection. The AI sails for them until they're back.` })
       this.broadcastRace()
       this.maybeResolve()
     }
+  }
+
+  /** Host: stop waiting for an online sailor. The AI sails their boat until they reconnect. */
+  sailForGuest(id: number) {
+    const s = this.snap
+    const b = s.state?.boats[id]
+    if (s.mode !== "host" || s.phase !== "racing" || !s.state || s.resolving || !b) return
+    if (b.controller !== "remote" || !racing(b) || b.away || this.plans.has(id)) return
+    this.emit({ state: setAway(s.state, id, true), status: `The AI sails for ${b.name} until they reconnect.` })
+    this.broadcastRace()
+    this.maybeResolve()
+  }
+
+  /** Host: a guest reconnecting mid-race gets their boat back, on this new connection. */
+  private reclaim(peer: string, seat: string | undefined) {
+    const s = this.snap
+    const id = seat ? [...this.seats].find(([, k]) => k === seat)?.[0] : undefined
+    if (id === undefined || !s.state) {
+      this.hostLink?.sendTo(peer, { type: "late" })
+      return
+    }
+    // Whatever connection had this boat is finished with: anything it still sends, or its closing, is ignored.
+    for (const [p, b] of this.peerBoat) if (b === id) this.peerBoat.delete(p)
+    this.peerBoat.set(peer, id)
+    const b = s.state.boats[id]
+    if (b.away) this.emit({ state: setAway(s.state, id, false), status: `${b.name} is back.` })
+    this.broadcastRace()
   }
 
   /** Host: go, once every online sailor is ready. */
@@ -409,23 +508,76 @@ export class Session {
 
   async join(hostId: string, name: string, boat: BoatClassId) {
     this.stop()
-    const gen = this.generation
+    this.hostId = hostId
+    this.seat = seatFor(hostId)
     this.emit({ mode: "guest", phase: "lobby", status: "Connecting to the host…" })
+    await this.connect(name, boat)
+  }
+
+  /** Guest, mid-race: connect to the host afresh and take this device's boat back (from the AI, if it's away). */
+  rejoin() {
+    const s = this.snap
+    if (s.mode !== "guest" || s.phase !== "racing" || !this.hostId || s.state?.over) return
+    this.clearRetry()
+    this.retries = 0
+    this.reconnect()
+  }
+
+  private reconnect() {
+    this.linkGen++
+    this.guestLink?.close()
+    this.guestLink = null
+    this.emit({ status: "Reconnecting to the host…", error: null, active: null })
+    const me = this.snap.state?.boats[this.snap.mine[0]]
+    void this.connect(me?.name ?? "Guest", me?.boat ?? "j-35")
+  }
+
+  private clearRetry() {
+    if (this.retryTimer !== null) clearTimeout(this.retryTimer)
+    this.retryTimer = null
+  }
+
+  /** Guest, mid-race: the connection to the host dropped. Try again a few times before giving up. */
+  private lostHost(why: string) {
+    const s = this.snap
+    if (s.phase !== "racing" || !s.state || s.state.over || this.retries >= RECONNECT_TRIES) {
+      this.emit({ error: why, status: "", active: null })
+      return
+    }
+    const wait = 1000 * 2 ** this.retries++
+    this.emit({ status: "Lost the host. Reconnecting…", error: null, active: null })
+    this.clearRetry()
+    this.retryTimer = setTimeout(() => ((this.retryTimer = null), this.reconnect()), wait)
+  }
+
+  private async connect(name: string, boat: BoatClassId) {
+    const gen = this.generation
+    const lg = ++this.linkGen
+    const live = () => gen === this.generation && lg === this.linkGen
+    const seat = this.seat
+    // A failing connection can report both an error and its closing: only the first counts.
+    const fail = (why: string) => {
+      if (!live()) return
+      this.linkGen++
+      this.lostHost(why)
+    }
     try {
-      const link = await join(hostId, {
+      const link = await join(this.hostId!, {
         onOpen: () => {
-          this.guestLink?.send({ type: "hello", name, boat })
-          this.emit({ status: "" })
+          if (!live()) return
+          this.guestLink?.send({ type: "hello", name, boat, seat })
+          if (this.snap.phase === "lobby") this.emit({ status: "" })
         },
-        onMessage: (msg) => this.guestReceive(msg),
-        onClose: () => this.emit({ error: "The host left the race.", active: null }),
+        onMessage: (msg) => live() && this.guestReceive(msg),
+        onClose: () => fail("The host left the race."),
+        // Mid-race, the host may only be away from the PeerJS server for a moment: that's tried again too.
         onError: (e) =>
-          this.emit({ error: e === "peer-unavailable" ? "That race isn't open any more." : `Connection problem (${e}).` }),
+          fail(e !== "peer-unavailable" ? `Connection problem (${e}).` : this.snap.phase === "racing" ? "The host left the race." : "That race isn't open any more."),
       })
-      if (gen !== this.generation) return link.close()
+      if (!live()) return link.close()
       this.guestLink = link
     } catch {
-      if (gen === this.generation) this.emit({ error: "Couldn't connect. Check the link and try again." })
+      fail("Couldn't connect. Check the link and try again.")
     }
   }
 
@@ -439,6 +591,13 @@ export class Session {
 
   private guestReceive(msg: Message) {
     const s = this.snap
+    if (msg.type === "late") {
+      this.linkGen++
+      this.guestLink?.close()
+      this.guestLink = null
+      this.emit({ status: "", active: null, error: s.phase === "racing" ? "The host doesn't have your boat in this race." : "That race has already started." })
+      return
+    }
     if (msg.type === "removed") {
       // Hang up first, so the closing connection doesn't read as the host leaving.
       this.guestLink?.close()
@@ -459,6 +618,7 @@ export class Session {
       return
     }
     if (msg.type !== "race") return
+    this.retries = 0
     const sameMap = s.map && s.config && JSON.stringify(s.config) === JSON.stringify(msg.config)
     const map = sameMap ? s.map! : generateMap(msg.config)
     const newTurn = !s.state || s.state.turn !== msg.state.turn
@@ -473,8 +633,9 @@ export class Session {
       entrants: msg.state.boats,
       mine: [msg.you],
       planned,
-      active: me && racing(me) && !msg.state.over && !planned.includes(msg.you) ? msg.you : null,
+      active: me && racing(me) && !me.away && !msg.state.over && !planned.includes(msg.you) ? msg.you : null,
       status: "",
+      error: null,
     })
   }
 }

@@ -201,4 +201,106 @@ describe("Session", () => {
     s.stop()
     expect(s.replay(0)).toBeNull()
   }, 60_000)
+
+  describe("online sailors who drop out", () => {
+    const ana: Entrant = { name: "Ana", color: "#e11d48", controller: "human", boat: "j-35" }
+    // A host with Ana on its own screen, and Bo online: racing, with Bo at the helm.
+    const race = async () => {
+      const ref = { host: null as unknown as Snapshot, guest: null as unknown as Snapshot }
+      const h = new Session((x) => (ref.host = x))
+      const g = new Session((x) => (ref.guest = x))
+      await h.hostLobby(cfg, [ana])
+      await until(() => ref.host.inviteUrl !== null)
+      await g.join("HOST", "Bo", "j-35")
+      await until(() => ref.guest.mine.length === 1)
+      g.setSailor("Bo", "j-35", true)
+      await until(() => ref.host.entrants[1]?.ready === true)
+      h.startHosted()
+      await until(() => ref.guest.active === 1)
+      return { h, g, ref }
+    }
+    const boPeer = () => [...net.guests.keys()].at(-1)!
+
+    it("lets the AI sail for a dropped guest, who gets the boat back by opening the invite link again", async () => {
+      const store = new Map<string, string>()
+      vi.stubGlobal("localStorage", { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => store.set(k, v) })
+      try {
+        const { h, g, ref } = await race()
+        // Bo's connection dies without a word.
+        const peer = boPeer()
+        net.guests.delete(peer)
+        net.host!.onLeave(peer)
+        expect(ref.host.state!.boats[1].away).toBe(true)
+        expect(ref.host.status).toMatch(/Bo lost the connection/)
+
+        // Ana's move is all the turn waits for now.
+        h.submit(0, { heading: ref.host.state!.boats[0].heading })
+        await until(() => ref.host.state!.turn === 1 && !ref.host.resolving)
+        await until(() => ref.host.state!.turn === 2 || ref.host.active === 0)
+        expect(ref.host.state!.turn).toBe(1)
+
+        // Bo reloads the page: the same device, so the same seat.
+        let back!: Snapshot
+        const g2 = new Session((x) => (back = x))
+        await g2.join("HOST", "Bo", "j-35")
+        await until(() => back.phase === "racing" && back.active === 1)
+        expect(back.state!.turn).toBe(1)
+        expect(ref.host.state!.boats[1].away).toBe(false)
+        expect(ref.host.status).toMatch(/Bo is back/)
+
+        // The turn waits for Bo again, and Bo's moves count.
+        h.submit(0, { heading: ref.host.state!.boats[0].heading })
+        await new Promise((r) => setTimeout(r, 20))
+        expect(ref.host.state!.turn).toBe(1)
+        g2.submit(1, { heading: back.state!.boats[1].heading })
+        await until(() => ref.host.state!.turn === 2)
+        g.stop()
+        g2.stop()
+        h.stop()
+      } finally {
+        vi.unstubAllGlobals()
+      }
+    })
+
+    it("lets the host stop waiting for a guest, who can take the helm back", async () => {
+      const { h, g, ref } = await race()
+      h.submit(0, { heading: ref.host.state!.boats[0].heading })
+      expect(ref.host.state!.turn).toBe(0)
+      h.sailForGuest(1)
+      await until(() => ref.host.state!.turn === 1 && !ref.host.resolving)
+      expect(ref.host.state!.boats[1].away).toBe(true)
+      await until(() => ref.guest.state!.boats[1].away === true)
+      expect(ref.guest.active).toBeNull()
+
+      g.rejoin()
+      await until(() => ref.guest.active === 1 && ref.host.state!.boats[1].away === false)
+      expect(ref.guest.error).toBeNull()
+      // Only the new connection steers Bo's boat; the old one closed without making Bo away again.
+      await new Promise((r) => setTimeout(r, 20))
+      expect(ref.host.state!.boats[1].away).toBe(false)
+      g.stop()
+      h.stop()
+    })
+
+    it("retires the boat of a guest who leaves for good", async () => {
+      const { h, g, ref } = await race()
+      g.stop()
+      await until(() => ref.host.state!.boats[1].next === -1)
+      expect(ref.host.status).toMatch(/Bo left the race/)
+      h.stop()
+    })
+
+    it("turns away someone new once the race has started", async () => {
+      const { h, g, ref } = await race()
+      let late!: Snapshot
+      const g2 = new Session((x) => (late = x))
+      await g2.join("HOST", "Cy", "j-35")
+      await until(() => late.error !== null)
+      expect(late.error).toMatch(/already started/)
+      expect(ref.host.state!.boats).toHaveLength(2)
+      g2.stop()
+      g.stop()
+      h.stop()
+    })
+  })
 })

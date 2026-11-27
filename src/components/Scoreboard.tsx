@@ -7,9 +7,10 @@ import { Panel } from "./ui.tsx"
 const fmt = (t: number) => t.toFixed(2)
 
 function who(b: Boat, mine: number[]) {
-  if (mine.includes(b.id)) return mine.length > 1 ? "on this screen" : "you"
+  const away = b.away && racing(b) ? " · AI sailing" : ""
+  if (mine.includes(b.id)) return (mine.length > 1 ? "on this screen" : "you") + away
   if (b.controller === "ai") return `AI · ${b.difficulty}`
-  if (b.controller === "remote") return "online"
+  if (b.controller === "remote") return "online" + away
   return "human"
 }
 
@@ -30,7 +31,7 @@ function BoatRow(props: { boat: Boat; place: number; map: GameMap; mine: number[
         <div class="flex items-center gap-1.5">
           <span class="inline-block size-2.5 shrink-0 rounded-full" style={{ background: b().color }} />
           <span class={["truncate", props.mine.includes(b().id) && "font-semibold"]}>{b().name}</span>
-          <Show when={props.showPlanned && racing(b()) && b().controller !== "ai"}>
+          <Show when={props.showPlanned && racing(b()) && b().controller !== "ai" && !b().away}>
             <span class={["text-xs", props.planned ? "text-good" : "text-muted-foreground"]} title={props.planned ? "Ready" : "Thinking"}>
               {props.planned ? "✓" : "…"}
             </span>
