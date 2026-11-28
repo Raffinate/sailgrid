@@ -1,6 +1,6 @@
 import { chooseMove } from "./ai.ts"
 import type { Plan } from "./boat.ts"
-import { type BoatClassId, boatClass } from "./fleet.ts"
+import { type BoatChoice, boatChoice } from "./fleet.ts"
 import { type GameMap, generateMap, type RaceConfig } from "./map.ts"
 import { type GuestLink, type HostLink, host, inviteUrl, join } from "./multiplayer.ts"
 import { type Entrant, newRace, type RaceState, racing, resolveTurn, retire, setAway } from "./race.ts"
@@ -22,13 +22,13 @@ export type Phase = "setup" | "lobby" | "racing"
 
 export type Message =
   /** A guest arrives, or comes back mid-race: `seat` is this device's key to its boat in this race. */
-  | { type: "hello"; name: string; boat: BoatClassId; seat?: string }
+  | { type: "hello"; name: string; boat: BoatChoice; seat?: string }
   /** A guest leaves the race for good: the host retires their boat. */
   | { type: "leave" }
   /** The race has started without this guest. */
   | { type: "late" }
   /** A guest in the lobby changes their name or boat, or says they're ready (or not, to change again). */
-  | { type: "sailor"; name: string; boat: BoatClassId; ready: boolean }
+  | { type: "sailor"; name: string; boat: BoatChoice; ready: boolean }
   | { type: "lobby"; config: RaceConfig; entrants: Entrant[]; you: number }
   /** The host took this guest out of the lobby. */
   | { type: "removed" }
@@ -404,7 +404,7 @@ export class Session {
       if (s.phase !== "lobby" || !s.config) return
       if (s.entrants.length >= MAX_BOATS) return
       if (msg.seat) this.peerSeat.set(peer, msg.seat)
-      const sailor: Entrant = { name: cleanName(msg.name), color: "", controller: "remote", peer, boat: boatClass(msg.boat).id, ready: false }
+      const sailor: Entrant = { name: cleanName(msg.name), color: "", controller: "remote", peer, boat: boatChoice(msg.boat), ready: false }
       // The lobby list (with who's still choosing) says the rest.
       if (s.status) this.emit({ status: "" })
       this.setEntrants(s.config, [...s.entrants, sailor])
@@ -412,7 +412,7 @@ export class Session {
     }
     if (msg.type === "sailor") {
       if (s.phase !== "lobby" || !s.config || !this.peerBoat.has(peer)) return
-      const patch = { name: cleanName(msg.name), boat: boatClass(msg.boat).id, ready: msg.ready === true }
+      const patch = { name: cleanName(msg.name), boat: boatChoice(msg.boat), ready: msg.ready === true }
       this.setEntrants(
         s.config,
         s.entrants.map((e) => (e.peer === peer ? { ...e, ...patch } : e)),
@@ -506,7 +506,7 @@ export class Session {
 
   // ---- Joining -----------------------------------------------------------------------------------
 
-  async join(hostId: string, name: string, boat: BoatClassId) {
+  async join(hostId: string, name: string, boat: BoatChoice) {
     this.stop()
     this.hostId = hostId
     this.seat = seatFor(hostId)
@@ -550,7 +550,7 @@ export class Session {
     this.retryTimer = setTimeout(() => ((this.retryTimer = null), this.reconnect()), wait)
   }
 
-  private async connect(name: string, boat: BoatClassId) {
+  private async connect(name: string, boat: BoatChoice) {
     const gen = this.generation
     const lg = ++this.linkGen
     const live = () => gen === this.generation && lg === this.linkGen
@@ -582,7 +582,7 @@ export class Session {
   }
 
   /** Guest, in the lobby: this device's name and boat, and whether it's ready to start. */
-  setSailor(name: string, boat: BoatClassId, ready: boolean) {
+  setSailor(name: string, boat: BoatChoice, ready: boolean) {
     const s = this.snap
     if (s.mode !== "guest" || s.phase !== "lobby" || !s.mine.length) return
     this.guestLink?.send({ type: "sailor", name, boat, ready })

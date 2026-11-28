@@ -20,7 +20,7 @@ import {
 import { ThemeToggle } from "./components/ThemeToggle.tsx"
 import { buttonClass, Kbd, Panel } from "./components/ui.tsx"
 import type { Plan } from "./game/boat.ts"
-import { type BoatClassId, DEFAULT_BOAT, FLEET } from "./game/fleet.ts"
+import { type BoatChoice, boatChoice, DEFAULT_BOAT } from "./game/fleet.ts"
 import { generateMap, isSeed, type RaceConfig, randomConfig } from "./game/map.ts"
 import { parseJoinId } from "./game/multiplayer.ts"
 import { previewPlan, raceTime, racing, standings } from "./game/race.ts"
@@ -39,7 +39,7 @@ function loadSetup(): { config: RaceConfig; players: SetupPlayer[] } {
     const players = (Array.isArray(saved.players) && saved.players.length ? saved.players : fallback.players).map((p) => ({
       ...p,
       // Setups saved before there was a choice of boats.
-      boat: FLEET.some((c) => c.id === p.boat) ? p.boat : DEFAULT_BOAT,
+      boat: boatChoice(p.boat),
     }))
     // Setups saved before the Weather setting had steady or shifty wind (and maybe a chance of a front).
     const { shifts, frontChance: _, ...config } = (saved.config ?? {}) as Partial<RaceConfig> & { shifts?: string; frontChance?: number }
@@ -223,7 +223,7 @@ export function App() {
     track("race_joined")
   }
   // A guest's name and boat go to the host, and are remembered as this device's first sailor for next time.
-  const setSailor = (name: string, boat: BoatClassId, ready: boolean) => {
+  const setSailor = (name: string, boat: BoatChoice, ready: boolean) => {
     session.setSailor(name, boat, ready)
     const ps = players()
     const i = ps.findIndex((p) => p.kind === "human")

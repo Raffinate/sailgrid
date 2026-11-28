@@ -1,7 +1,7 @@
 import { type Move, moveAt, type Plan, simulate, tackOf } from "./boat.ts"
 import { closestApproach, cross, dirVec, dist, dot, lerp, pointSegment, type Pt, roundPt, samePt, segmentCross, sub } from "./geom.ts"
 import { type GameMap, isWater, landHit, startingPositions } from "./map.ts"
-import { type BoatClassId, boatClass } from "./fleet.ts"
+import { type BoatChoice, type BoatClassId, boatClass, drawBoat } from "./fleet.ts"
 import { type Rng } from "./rng.ts"
 import { windAt, windField } from "./wind.ts"
 
@@ -13,8 +13,8 @@ export interface Entrant {
   color: string
   controller: Controller
   difficulty?: Difficulty
-  /** Which kind of boat. */
-  boat: BoatClassId
+  /** Which kind of boat: before the race it can be "random", drawn when the race starts. */
+  boat: BoatChoice
   /** Remote players: the connection that steers this boat. */
   peer?: string
   /** Online lobby: a remote player has settled on a name and boat and is ready to start. */
@@ -22,6 +22,8 @@ export interface Entrant {
 }
 
 export interface Boat extends Entrant {
+  /** The boat it's sailing: any random pick was drawn at the start. */
+  boat: BoatClassId
   id: number
   pos: Pt
   heading: number
@@ -93,6 +95,7 @@ export function newRace(map: GameMap, entrants: Entrant[], maxTurns = 400, rnd: 
     boats: entrants.map((e, id) => {
       return {
         ...e,
+        boat: drawBoat(e.boat, rnd),
         id,
         pos: spots[id].pos,
         heading: spots[id].heading,

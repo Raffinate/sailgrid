@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { chooseMove, route, timeToFinish } from "./ai.ts"
 import { maneuver, moveAt, SAMPLE, simulate, tackOf } from "./boat.ts"
-import { boatClass, FLEET, windBand } from "./fleet.ts"
+import { boatChoice, boatClass, drawBoat, FLEET, windBand } from "./fleet.ts"
 import { angleDiff, bearing, closestApproach, dirVec, segmentCross } from "./geom.ts"
 import { defaultConfig, describeConfig, type GameMap, generateMap, isSeed, isWindGradientMap, isWater, MAP_SIZES, mapSeed, type RaceConfig, randomConfig, startingPositions, WIND_GRADIENT_MAP, type Weather } from "./map.ts"
 import { mulberry32, randomSeed } from "./rng.ts"
@@ -35,6 +35,23 @@ describe("fleet", () => {
     expect(windBand(6)).toBe("low")
     expect(windBand(12)).toBe("medium")
     expect(windBand(18)).toBe("high")
+  })
+
+  it("draws a random boat from the fleet when the race starts", () => {
+    expect(boatChoice("random")).toBe("random")
+    expect(boatChoice("x-35")).toBe("x-35")
+    expect(boatChoice("laser")).toBe("j-35")
+    expect(drawBoat("melges-24")).toBe("melges-24")
+    const rnd = mulberry32(7)
+    const drawn = new Set(Array.from({ length: 200 }, () => drawBoat("random", rnd)))
+    expect([...drawn].sort()).toEqual(FLEET.map((c) => c.id).sort())
+    const map = generateMap(defaultConfig(1))
+    const state = newRace(map, [
+      { name: "A", color: "#000", controller: "ai", difficulty: "easy", boat: "random" },
+      { name: "B", color: "#111", controller: "human", boat: "j-109" },
+    ])
+    expect(FLEET.some((c) => c.id === state.boats[0].boat)).toBe(true)
+    expect(state.boats[1].boat).toBe("j-109")
   })
 
   it("gives each boat its own conditions, with no boat best everywhere", () => {

@@ -144,6 +144,19 @@ export const DEFAULT_BOAT: BoatClassId = "j-35"
 
 export const boatClass = (id: BoatClassId | undefined): BoatClass => FLEET.find((c) => c.id === id) ?? FLEET[0]
 
+/** A boat as picked before the race: one of the fleet, or "random", drawn from the fleet when the race starts. */
+export type BoatChoice = BoatClassId | "random"
+
+export const RANDOM_BOAT = "random" as const
+
+/** A saved or received pick, made safe: one of the fleet, "random", or else the fallback. */
+export const boatChoice = (v: unknown, fallback: BoatChoice = DEFAULT_BOAT): BoatChoice =>
+  v === RANDOM_BOAT || FLEET.some((c) => c.id === v) ? (v as BoatChoice) : fallback
+
+/** The boat a pick stands for: a random pick draws one of the fleet. */
+export const drawBoat = (choice: BoatChoice, rnd: () => number = Math.random): BoatClassId =>
+  choice === RANDOM_BOAT ? FLEET[Math.floor(rnd() * FLEET.length)].id : boatClass(choice).id
+
 /** Wind ranges, as ORC uses them: light under 9 kn, strong over 14. */
 export const windBand = (knots: number): WindBand => (knots < 9 ? "low" : knots <= 14 ? "medium" : "high")
 

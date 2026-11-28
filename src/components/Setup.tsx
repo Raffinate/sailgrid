@@ -2,7 +2,7 @@ import { Button } from "@ui-sdk/solid/button"
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "@ui-sdk/solid/collapsible"
 import { createInputController, Input } from "@ui-sdk/solid/input"
 import { createEffect, createSignal, For, Show } from "solid-js"
-import { type BoatClassId, boatClass, DEFAULT_BOAT, FLEET, WIND_BAND_LABEL, windBand } from "../game/fleet.ts"
+import { type BoatChoice, boatChoice, boatClass, FLEET, RANDOM_BOAT, WIND_BAND_LABEL, windBand } from "../game/fleet.ts"
 import { type CourseKind, describeConfig, type IslandDensity, type MapSize, isSeed, MAX_SEED_LENGTH, normalizeSeed, type RaceConfig, randomConfig, SEED_CHARS, type Weather } from "../game/map.ts"
 import { parseJoinId } from "../game/multiplayer.ts"
 import type { Difficulty, Entrant } from "../game/race.ts"
@@ -16,11 +16,16 @@ export type PlayerKind = "human" | Difficulty
 export interface SetupPlayer {
   name: string
   kind: PlayerKind
-  boat: BoatClassId
+  boat: BoatChoice
 }
 
-// Short names in the picker; the fleet panel has the full ones.
-const BOATS = FLEET.map((c) => [c.id, c.name.replace(/^Beneteau /, "")] as const)
+// Short names in the picker; the fleet panel has the full ones. "Random" draws one when the race starts.
+const BOATS: readonly (readonly [BoatChoice, string])[] = [
+  ...FLEET.map((c) => [c.id, c.name.replace(/^Beneteau /, "")] as const),
+  [RANDOM_BOAT, "Random"],
+]
+
+const boatLabel = (b: BoatChoice) => (b === RANDOM_BOAT ? "Random boat" : boatClass(b).name)
 
 const KINDS = [
   ["human", "Human"],
@@ -33,9 +38,9 @@ const AI_NAMES = ["Tern", "Petrel", "Gannet", "Skua", "Fulmar", "Kittiwake", "Sh
 
 export const defaultPlayers = (): SetupPlayer[] => [
   { name: "You", kind: "human", boat: "j-35" },
-  { name: "Tern", kind: "hard", boat: "melges-24" },
-  { name: "Petrel", kind: "medium", boat: "j-109" },
-  { name: "Gannet", kind: "easy", boat: "x-35" },
+  { name: "Tern", kind: "hard", boat: RANDOM_BOAT },
+  { name: "Petrel", kind: "medium", boat: RANDOM_BOAT },
+  { name: "Gannet", kind: "easy", boat: RANDOM_BOAT },
 ]
 
 export const toEntrants = (players: SetupPlayer[]): Entrant[] =>
@@ -43,7 +48,7 @@ export const toEntrants = (players: SetupPlayer[]): Entrant[] =>
     name: p.name.trim() || (p.kind === "human" ? `Sailor ${i + 1}` : AI_NAMES[i % AI_NAMES.length]),
     color: BOAT_COLORS[i % BOAT_COLORS.length],
     controller: p.kind === "human" ? "human" : "ai",
-    boat: FLEET.some((c) => c.id === p.boat) ? p.boat : DEFAULT_BOAT,
+    boat: boatChoice(p.boat),
     ...(p.kind === "human" ? {} : { difficulty: p.kind }),
   }))
 
@@ -238,7 +243,9 @@ export function PlayersPanel(props: { players: SetupPlayer[]; disabled?: boolean
   const add = (kind: PlayerKind) => {
     const n = props.players.length
     const name = kind === "human" ? `Sailor ${n + 1}` : (AI_NAMES.find((a) => !props.players.some((p) => p.name === a)) ?? `Boat ${n + 1}`)
-    props.onChange([...props.players, { name, kind, boat: FLEET[props.players.length % FLEET.length].id }])
+    // AI boats sail a random boat unless told otherwise.
+    const boat = kind === "human" ? FLEET[n % FLEET.length].id : RANDOM_BOAT
+    props.onChange([...props.players, { name, kind, boat }])
   }
   return (
     <Panel title="Sailors" class="space-y-3">
@@ -279,9 +286,9 @@ export function PlayersPanel(props: { players: SetupPlayer[]; disabled?: boolean
                   class="w-full"
                   onChange={(kind) => update(i, { kind })}
                 />
-                <Choice<BoatClassId>
+                <Choice<BoatChoice>
                   label="Boat"
-                  value={FLEET.some((c) => c.id === p().boat) ? p().boat : DEFAULT_BOAT}
+                  value={boatChoice(p().boat)}
                   options={BOATS}
                   disabled={props.disabled}
                   class="w-full"
@@ -385,9 +392,9 @@ export function StartPanel(props: {
 }
 
 /** A guest's own entry in the lobby: name and boat, then ready. Ready locks them until changed again. */
-function GuestSailor(props: { me: Entrant; onChange: (name: string, boat: BoatClassId, ready: boolean) => void }) {
+function GuestSailor(props: { me: Entrant; onChange: (name: string, boat: BoatChoice, ready: boolean) => void }) {
   const [name, setName] = createSignal(props.me.name)
-  const [boat, setBoat] = createSignal<BoatClassId>(props.me.boat)
+  const [boat, setBoat] = createSignal<BoatChoice>(props.me.boat)
   const ready = () => props.me.ready === true
   return (
     <div class="space-y-2 rounded-md border border-border p-3">
@@ -407,7 +414,7 @@ function GuestSailor(props: { me: Entrant; onChange: (name: string, boat: BoatCl
         />
       </div>
       <div class="pl-5">
-        <Choice<BoatClassId>
+        <Choice<BoatChoice>
           label="Your boat"
           value={boat()}
           options={BOATS}
@@ -453,7 +460,7 @@ export function LobbyPanel(props: {
   error: string | null
   onStart: () => void
   onLeave: () => void
-  onSailor: (name: string, boat: BoatClassId, ready: boolean) => void
+  onSailor: (name: string, boat: BoatChoice, ready: boolean) => void
   /** Host: take an online sailor out of the lobby. */
   onRemove: (peer: string) => void
 }) {
@@ -515,7 +522,7 @@ export function LobbyPanel(props: {
                     </Show>
                   </span>
                   <span class="shrink-0 text-xs text-muted-foreground">
-                    {boatClass(e().boat).name} ·{" "}
+                    {boatLabel(e().boat)} ·{" "}
                     <span class={e().controller === "remote" ? (e().ready ? "text-good" : "text-warn") : ""}>{lobbyRole(e())}</span>
                   </span>
                   <Show when={props.host && e().peer}>
