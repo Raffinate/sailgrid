@@ -3,6 +3,7 @@ import { closestApproach, cross, dirVec, dist, dot, firstWithin, lerp, pointSegm
 import { type GameMap, isWater, landHit, startingPositions } from "./map.ts"
 import { type BoatChoice, type BoatClassId, boatClass, drawBoat } from "./fleet.ts"
 import { type Rng } from "./rng.ts"
+import { BOAT_LENGTH_METERS, CELL_METERS } from "./units.ts"
 import { type WindField, windAt, windField } from "./wind.ts"
 
 export type Controller = "human" | "ai" | "remote"
@@ -104,7 +105,11 @@ export interface RaceState {
 /** Boats closer than this (cells) during a turn have collided, or at least come too close. */
 export const CONTACT = 0.8
 const MARK_TOUCH = 0.35
-const OVERLAP = 0.8
+/**
+ * A boat more than a hull length behind another (along its heading) is clear astern: its bow is behind the
+ * other's stern. Not CONTACT: boats meet within that, so nothing closer could ever be clear astern.
+ */
+const OVERLAP = BOAT_LENGTH_METERS / CELL_METERS
 
 /** A new race, with the boats lined up along the start line in a random order (`rnd` picks it). */
 export function newRace(map: GameMap, entrants: Entrant[], maxTurns = 400, rnd: Rng = Math.random): RaceState {

@@ -175,6 +175,12 @@ describe("rules", () => {
   it("clear astern keeps clear", () => {
     expect(rightOfWay(close(270, 3, 0), close(270, 0, 0), 0)).toEqual({ fault: ["a"], rule: "12" })
   })
+  it("a boat more than a hull length behind is clear astern, even within contact distance", () => {
+    // Heading west, wind from north (starboard): a is 0.7 cells behind b and slightly to windward.
+    expect(rightOfWay(close(270, 0.7, -0.2), close(270, 0, 0), 0)).toEqual({ fault: ["a"], rule: "12" })
+    // Less than a hull length behind: overlapped, so the windward boat keeps clear.
+    expect(rightOfWay(close(270, 0.2, 0.3), close(270, 0, 0), 0)).toEqual({ fault: ["b"], rule: "11" })
+  })
   it("a tacking boat keeps clear", () => {
     expect(rightOfWay({ ...close(45, 0, 0), tacked: true }, close(45, 1, 0), 0).rule).toBe("13")
   })
