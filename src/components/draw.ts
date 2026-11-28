@@ -260,9 +260,9 @@ export function drawCourse(ctx: CanvasRenderingContext2D, m: GameMap, v: Viewpor
   }
 }
 
-function label(ctx: CanvasRenderingContext2D, text: string, p: Pt, c: Palette, size: number, bold = false) {
+function label(ctx: CanvasRenderingContext2D, text: string, p: Pt, c: Palette, size: number, bold = false, align: CanvasTextAlign = "center") {
   ctx.font = `${bold ? 600 : 500} ${size}px Inter, ui-sans-serif, system-ui, sans-serif`
-  ctx.textAlign = "center"
+  ctx.textAlign = align
   ctx.textBaseline = "middle"
   ctx.lineWidth = 3
   ctx.strokeStyle = c.water
@@ -543,4 +543,125 @@ export function drawIsotachs(ctx: CanvasRenderingContext2D, m: GameMap, v: Viewp
     }
   ctx.stroke()
   ctx.restore()
+}
+
+// ---- An incident, close up ------------------------------------------------------------------------
+
+export interface IncidentBoat {
+  color: string
+  name: string
+  /** Its path that turn, if this device saw it. */
+  path: Pt[] | null
+  /** Where it was, and which way it pointed, at the moment of the incident. */
+  pos: Pt
+  heading: number
+}
+
+/**
+ * An incident drawn close up, north up like the chart: the land and marks, each boat's path that turn (from
+ * a dot where it started), the boats as they were at that moment, the spot circled, and the wind.
+ */
+export function drawIncident(
+  ctx: CanvasRenderingContext2D,
+  m: GameMap,
+  c: Palette,
+  size: { width: number; height: number },
+  spot: { at: Pt; radius: number },
+  wind: { from: number; speed: number },
+  boats: IncidentBoat[],
+  big: boolean,
+) {
+  const { width, height } = size
+  // Frame everything that turn, with room around it, and at least a few cells across.
+  const pts = [spot.at, ...boats.flatMap((b) => [b.pos, ...(b.path ?? [])])]
+  const MARGIN = 1.5
+  const MIN_SPAN = big ? 6 : 4
+  let x0 = Math.min(...pts.map((p) => p.x)) - MARGIN
+  let x1 = Math.max(...pts.map((p) => p.x)) + MARGIN
+  let y0 = Math.min(...pts.map((p) => p.y)) - MARGIN
+  let y1 = Math.max(...pts.map((p) => p.y)) + MARGIN
+  const grow = (lo: number, hi: number, span: number) => {
+    const extra = Math.max(0, span - (hi - lo)) / 2
+    return [lo - extra, hi + extra]
+  }
+  ;[x0, x1] = grow(x0, x1, MIN_SPAN)
+  ;[y0, y1] = grow(y0, y1, MIN_SPAN)
+  const cell = Math.min(width / (x1 - x0), height / (y1 - y0))
+  // Centre the framed area; the chart's own pad is zero here, the translation does the framing.
+  const ox = (width - (x1 - x0) * cell) / 2 - x0 * cell
+  const oy = (height - (y1 - y0) * cell) / 2 - y0 * cell
+  const v: Viewport = { cell, pad: 0, width: (m.width - 1) * cell, height: (m.height - 1) * cell }
+
+  ctx.fillStyle = c.water
+  ctx.fillRect(0, 0, width, height)
+  ctx.save()
+  ctx.beginPath()
+  ctx.rect(0, 0, width, height)
+  ctx.clip()
+  ctx.translate(ox, oy)
+  drawStatic(ctx, m, v, c)
+  drawCourse(ctx, m, v, c, null)
+
+  for (const b of boats) {
+    if (!b.path?.length) continue
+    const p = b.path.map((q) => toPx(v, q))
+    ctx.strokeStyle = b.color
+    ctx.fillStyle = b.color
+    ctx.globalAlpha = 0.85
+    ctx.lineWidth = big ? 2.5 : 1.75
+    ctx.lineJoin = "round"
+    ctx.lineCap = "round"
+    ctx.beginPath()
+    p.forEach((q, i) => (i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)))
+    ctx.stroke()
+    ctx.beginPath()
+    ctx.arc(p[0].x, p[0].y, big ? 3.5 : 2.5, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.globalAlpha = 1
+  }
+
+  const s = toPx(v, spot.at)
+  ctx.strokeStyle = c.danger
+  ctx.lineWidth = big ? 2 : 1.5
+  ctx.setLineDash(big ? [5, 4] : [3, 3])
+  ctx.beginPath()
+  ctx.arc(s.x, s.y, Math.max(big ? 14 : 8, spot.radius * cell), 0, Math.PI * 2)
+  ctx.stroke()
+  ctx.setLineDash([])
+
+  for (const b of boats) drawBoat(ctx, v, c, b, b.pos, wind.from, {})
+  if (big) for (const b of boats) drawBoatName(ctx, v, c, b.name, b.pos, false)
+  ctx.restore()
+
+  // The wind, top left: an arrow blowing the way the wind blows, and its speed on the big picture.
+  const r = big ? 20 : 11
+  const w = { x: r + 4, y: r + 4 }
+  ctx.fillStyle = c.card
+  ctx.globalAlpha = 0.85
+  ctx.beginPath()
+  ctx.arc(w.x, w.y, r, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.globalAlpha = 1
+  const d = dirVec(wind.from + 180)
+  const tail = { x: w.x - d.x * r * 0.7, y: w.y - d.y * r * 0.7 }
+  const tip = { x: w.x + d.x * r * 0.7, y: w.y + d.y * r * 0.7 }
+  const n = { x: -d.y, y: d.x }
+  const head = r * 0.4
+  ctx.strokeStyle = c.foreground
+  ctx.fillStyle = c.foreground
+  ctx.lineWidth = big ? 2 : 1.5
+  ctx.lineCap = "round"
+  ctx.beginPath()
+  ctx.moveTo(tail.x, tail.y)
+  ctx.lineTo(tip.x - d.x * head * 0.5, tip.y - d.y * head * 0.5)
+  ctx.stroke()
+  ctx.beginPath()
+  ctx.moveTo(tip.x, tip.y)
+  ctx.lineTo(tip.x - d.x * head + n.x * head * 0.6, tip.y - d.y * head + n.y * head * 0.6)
+  ctx.lineTo(tip.x - d.x * head - n.x * head * 0.6, tip.y - d.y * head - n.y * head * 0.6)
+  ctx.closePath()
+  ctx.fill()
+  if (big) label(ctx, `${Math.round(wind.speed)} kn from ${Math.round(wind.from)}°`, { x: w.x + r + 6, y: w.y }, c, 12, false, "left")
+  // North, top right.
+  if (big) label(ctx, "N ↑", { x: width - 18, y: 16 }, c, 12, true)
 }

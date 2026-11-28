@@ -598,7 +598,7 @@ export function App() {
               planned={snap().planned}
               showPlanned={!snap().state!.over}
             />
-            <IncidentLog state={snap().state!} />
+            <IncidentLog map={snap().map!} state={snap().state!} wake={(turn, boat) => session.wake(turn, boat)} />
             <div class="flex flex-wrap gap-2">
               <Show when={snap().mode === "local" && snap().state!.over}>
                 <Button class={buttonClass.primary} onClick={start}>

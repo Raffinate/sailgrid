@@ -3,7 +3,7 @@ import { closestApproach, cross, dirVec, dist, dot, firstWithin, lerp, pointSegm
 import { type GameMap, isWater, landHit, startingPositions } from "./map.ts"
 import { type BoatChoice, type BoatClassId, boatClass, drawBoat } from "./fleet.ts"
 import { type Rng } from "./rng.ts"
-import { windAt, windField } from "./wind.ts"
+import { type WindField, windAt, windField } from "./wind.ts"
 
 export type Controller = "human" | "ai" | "remote"
 export type Difficulty = "easy" | "medium" | "hard"
@@ -65,6 +65,32 @@ export interface Incident {
   other?: number
   rule: Rule
   penalty: number
+  /** Enough to draw it (missing on incidents from before this was recorded). */
+  sketch?: IncidentSketch
+}
+
+/**
+ * The moment of an incident, for drawing it: when in the turn (path samples, as in moveAt), the spot (where
+ * the boats met, ran aground, or the mark touched), the wind there, and where each boat was and which way
+ * it pointed then: `boat` first, then `other`. The boats' paths that turn are their wakes in the next state.
+ */
+export interface IncidentSketch {
+  k: number
+  at: Pt
+  wind: { from: number; speed: number }
+  boats: { pos: Pt; heading: number }[]
+}
+
+const r2 = (n: number) => Math.round(n * 100) / 100
+const sketchPt = (p: Pt): Pt => ({ x: r2(p.x), y: r2(p.y) })
+const sketchOf = (field: WindField, k: number, at: Pt, boats: { pos: Pt; heading: number }[]): IncidentSketch => {
+  const w = windAt(field, at)
+  return {
+    k: r2(k),
+    at: sketchPt(at),
+    wind: { from: Math.round(w.from) % 360, speed: Math.round(w.speed * 10) / 10 },
+    boats: boats.map((b) => ({ pos: sketchPt(b.pos), heading: Math.round(b.heading) % 360 })),
+  }
 }
 
 export interface RaceState {
@@ -203,8 +229,15 @@ export function sail(map: GameMap, path: Pt[]): Sailed {
   return { path, end: path[path.length - 1], aground: false }
 }
 
-const touchesMark = (map: GameMap, path: Pt[]) =>
-  map.marks.some((mk) => path.some((p, i) => i > 0 && pointSegment(mk, path[i - 1], p).d < MARK_TOUCH))
+/** The first mark a path passes too close to, and when (path samples), or null. */
+function markTouch(map: GameMap, path: Pt[]): { mark: Pt; k: number } | null {
+  for (let i = 1; i < path.length; i++)
+    for (const mk of map.marks) {
+      const c = pointSegment(mk, path[i - 1], path[i])
+      if (c.d < MARK_TOUCH) return { mark: mk, k: i - 1 + c.t }
+    }
+  return null
+}
 
 /**
  * Closest approach of two boats sailing their paths at the same time (points every few seconds): how
@@ -274,13 +307,21 @@ export function resolveTurn(map: GameMap, state: RaceState, plans: Map<number, P
     const plan = plans.get(b.id) ?? { heading: b.heading }
     const m = simulate(b.pos, b, plan, windHere, boatClass(b.boat))
     const sailed = sail(map, m.path)
-    if (sailed.aground) incidents.push({ turn, boat: b.id, rule: "aground", penalty: PENALTY.aground })
+    if (sailed.aground) {
+      const k = sailed.path.length - 1
+      const sketch = sketchOf(field, k, sailed.end, [{ pos: sailed.end, heading: moveAt(m, k).heading }])
+      incidents.push({ turn, boat: b.id, rule: "aground", penalty: PENALTY.aground, sketch })
+    }
     moves.set(b.id, { ...m, path: sailed.path, boat: b.id, end: sailed.end, aground: sailed.aground, speed: sailed.aground ? 0 : m.speed })
   }
 
   // Marks: passing too close is a touch.
-  for (const m of moves.values())
-    if (touchesMark(map, m.path)) incidents.push({ turn, boat: m.boat, rule: "31", penalty: PENALTY["31"] })
+  for (const m of moves.values()) {
+    const touch = markTouch(map, m.path)
+    if (!touch) continue
+    const sketch = sketchOf(field, touch.k, touch.mark, [moveAt(m, touch.k)])
+    incidents.push({ turn, boat: m.boat, rule: "31", penalty: PENALTY["31"], sketch })
+  }
 
   // Boat against boat.
   const list = [...moves.values()]
@@ -299,9 +340,9 @@ export function resolveTurn(map: GameMap, state: RaceState, plans: Map<number, P
       const windFrom = windAt(field, lerp(ma.pos, mb.pos, 0.5)).from
       const r = rightOfWay(ma, mb, windFrom)
       for (const f of r.fault) {
-        const me = f === "a" ? a : b
-        const them = f === "a" ? b : a
-        incidents.push({ turn, boat: me.boat, other: them.boat, rule: r.rule, penalty: PENALTY[r.rule] })
+        const [me, them] = f === "a" ? [a, b] : [b, a]
+        const sketch = sketchOf(field, ca.met, lerp(ma.pos, mb.pos, 0.5), f === "a" ? [ma, mb] : [mb, ma])
+        incidents.push({ turn, boat: me.boat, other: them.boat, rule: r.rule, penalty: PENALTY[r.rule], sketch })
       }
       if (sameSpot) {
         // The boat that had to keep clear backs off to the nearest free spot along its own path, losing way.
@@ -397,7 +438,7 @@ export function previewPlan(map: GameMap, state: RaceState, boatId: number, plan
     move: { ...move, path: sailed.path },
     stop: sailed.end,
     aground: sailed.aground,
-    touchesMark: touchesMark(map, sailed.path),
+    touchesMark: markTouch(map, sailed.path) !== null,
     next: prog.next,
     finishes: prog.finishedAt !== null,
   }

@@ -586,6 +586,27 @@ function runRace(cfg: RaceConfig, entrants: Entrant[]): { state: RaceState; map:
   return { state, map }
 }
 
+describe("protest room", () => {
+  it("records where and how boats met, and the wind there, to draw it", () => {
+    const map = generateMap(defaultConfig(11))
+    const entrant = (name: string): Entrant => ({ name, color: "#000", controller: "ai", difficulty: "easy", boat: "j-35" })
+    const start = newRace(map, [entrant("A"), entrant("B")], 50, mulberry32(1))
+    const a = start.boats[0]
+    // B half a cell beside A, sailing the same way: they meet at once.
+    const state = { ...start, boats: [a, { ...start.boats[1], pos: { x: a.pos.x + 0.5, y: a.pos.y }, heading: a.heading }] }
+    const plans = new Map(state.boats.map((b) => [b.id, { heading: a.heading }]))
+    const inc = resolveTurn(map, state, plans).incidents.find((i) => i.other !== undefined)!
+    expect(inc.sketch).toBeDefined()
+    const s = inc.sketch!
+    expect(s.k).toBe(0)
+    expect(s.boats).toHaveLength(2)
+    expect(s.boats[0].pos).toEqual(state.boats[inc.boat].pos)
+    expect(s.boats[1].pos).toEqual(state.boats[inc.other!].pos)
+    expect(s.at).toEqual({ x: a.pos.x + 0.25, y: a.pos.y })
+    expect(s.wind.speed).toBeGreaterThan(0)
+  })
+})
+
 describe("AI race", () => {
   it("finishes a windward-leeward race", () => {
     const { state, map } = runRace({ ...defaultConfig(11), laps: 1 }, [

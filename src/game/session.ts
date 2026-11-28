@@ -1,5 +1,6 @@
 import { chooseMove } from "./ai.ts"
 import type { Plan } from "./boat.ts"
+import type { Pt } from "./geom.ts"
 import { type BoatChoice, boatChoice } from "./fleet.ts"
 import { type GameMap, generateMap, type RaceConfig } from "./map.ts"
 import { type GuestLink, type HostLink, host, inviteUrl, join } from "./multiplayer.ts"
@@ -154,6 +155,11 @@ export class Session {
     if (last && last.turn === state.turn) this.history[this.history.length - 1] = light
     else if (!last || state.turn > last.turn) this.history.push(light)
     this.replays.clear()
+  }
+
+  /** The path a boat sailed in turn `turn` (as in Incident.turn); null if this device didn't see that turn. */
+  wake(turn: number, boat: number): Pt[] | null {
+    return this.history.find((s) => s.turn === turn + 1)?.boats[boat]?.wake ?? null
   }
 
   /** The race as it stood after `turn` turns, for the replay; null if this device didn't see that turn. */

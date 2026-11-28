@@ -1,7 +1,8 @@
-import { For, Show } from "solid-js"
+import { createSignal, For, Show } from "solid-js"
 import { boatClass } from "../game/fleet.ts"
 import type { GameMap } from "../game/map.ts"
-import { type Boat, isRetired, type RaceState, RULE_TEXT, raceTime, racing, standings } from "../game/race.ts"
+import { type Boat, type Incident, isRetired, type RaceState, RULE_TEXT, raceTime, racing, standings } from "../game/race.ts"
+import { IncidentPicture, incidentTitle, ProtestDialog, type WakeOf } from "./Protest.tsx"
 import { Panel } from "./ui.tsx"
 
 const fmt = (t: number) => t.toFixed(2)
@@ -91,20 +92,21 @@ export function Scoreboard(props: { map: GameMap; state: RaceState; mine: number
   )
 }
 
-/** Fouls and groundings, most recent first. */
-export function IncidentLog(props: { state: RaceState }) {
+/** Fouls and groundings, most recent first; each with a close-up that opens big when clicked. */
+export function IncidentLog(props: { map: GameMap; state: RaceState; wake: WakeOf }) {
   const items = () => [...props.state.incidents].reverse().slice(0, 40)
   const name = (id: number) => props.state.boats[id]?.name ?? "?"
+  const [open, setOpen] = createSignal<Incident | null>(null)
   return (
     <Panel title="Protest room">
       <Show when={items().length} fallback={<p class="text-sm text-muted-foreground">Clean racing so far.</p>}>
-        <ul class="max-h-64 space-y-2 overflow-y-auto text-sm">
+        <ul class="max-h-96 space-y-2 overflow-y-auto text-sm">
           <For each={items()}>
             {(inc) => (
               <li class="flex gap-2">
                 <span class="w-9 shrink-0 text-xs text-muted-foreground tabular-nums">T{inc.turn + 1}</span>
                 <span class="inline-block size-2.5 shrink-0 translate-y-1.5 rounded-full" style={{ background: props.state.boats[inc.boat]?.color }} />
-                <span class="min-w-0">
+                <span class="min-w-0 flex-1">
                   <span class="font-medium">{name(inc.boat)}</span>
                   <Show when={inc.other !== undefined}> vs {name(inc.other!)}</Show>
                   <span class="block text-xs text-muted-foreground">
@@ -112,11 +114,23 @@ export function IncidentLog(props: { state: RaceState }) {
                     {RULE_TEXT[inc.rule]} · +{inc.penalty} {inc.penalty === 1 ? "turn" : "turns"}
                   </span>
                 </span>
+                <Show when={inc.sketch}>
+                  <button
+                    type="button"
+                    class="shrink-0 self-start rounded-md outline-none ring-offset-1 ring-offset-card hover:ring-2 hover:ring-ring/40 focus-visible:ring-3 focus-visible:ring-ring/40"
+                    aria-label={`Show ${incidentTitle(props.state, inc)} close up`}
+                    onClick={() => setOpen(inc)}
+                    data-ph-capture-attribute-action="protest-picture"
+                  >
+                    <IncidentPicture map={props.map} state={props.state} inc={inc} wake={props.wake} />
+                  </button>
+                </Show>
               </li>
             )}
           </For>
         </ul>
       </Show>
+      <ProtestDialog map={props.map} state={props.state} inc={open()} wake={props.wake} onClose={() => setOpen(null)} />
     </Panel>
   )
 }
