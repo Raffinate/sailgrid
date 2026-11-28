@@ -5,7 +5,7 @@ import { boatChoice, boatClass, drawBoat, FLEET, windBand } from "./fleet.ts"
 import { angleDiff, bearing, closestApproach, dirVec, segmentCross } from "./geom.ts"
 import { defaultConfig, describeConfig, type GameMap, generateMap, isSeed, isWindGradientMap, isWater, MAP_SIZES, mapSeed, type RaceConfig, randomConfig, startingPositions, WIND_GRADIENT_MAP, type Weather } from "./map.ts"
 import { mulberry32, randomSeed } from "./rng.ts"
-import { crossGates, crossGatesPath, type Entrant, newRace, type RaceState, resolveTurn, rightOfWay, standings } from "./race.ts"
+import { crossGates, crossGatesPath, type Entrant, newRace, pathApproach, type RaceState, resolveTurn, rightOfWay, standings } from "./race.ts"
 import { BOAT_LENGTH_METERS, CELL_METERS, CELLS_PER_KNOT, TURN_SECONDS } from "./units.ts"
 import { behindFront, behindLine, CARRY, eddiesAt, frontOf, frontRoughness, windAt, windField, windLinesAt, windLineWeight, windSampler, WIND_MAX, WIND_MIN } from "./wind.ts"
 
@@ -183,6 +183,16 @@ describe("rules", () => {
     const tacking = (heading: number, x: number, y: number) => ({ ...close(heading, x, y), tacked: true })
     expect(rightOfWay(tacking(315, 0, 0), tacking(45, 1, 0), 0)).toEqual({ fault: ["a"], rule: "13" })
     expect(rightOfWay(tacking(45, 1, 0), tacking(315, 0, 0), 0)).toEqual({ fault: ["b"], rule: "13" })
+  })
+  it("judges boats from the moment they first come close, not when closest", () => {
+    // a sails east past b, which sits half a cell to the south: they come within CONTACT (0.8) at x = 2 - 0.62.
+    const a = [0, 1, 2, 3, 4].map((x) => ({ x, y: 0 }))
+    const b = a.map(() => ({ x: 2, y: 0.5 }))
+    const ca = pathApproach(a, b)
+    expect(ca.k).toBeCloseTo(2)
+    expect(ca.met).toBeCloseTo(2 - Math.sqrt(0.8 ** 2 - 0.5 ** 2))
+    // Already that close at the start: met at once.
+    expect(pathApproach(a, a.map((p) => ({ x: p.x, y: 0.5 }))).met).toBe(0)
   })
   it("when both tack, the one astern keeps clear", () => {
     // Wind from north: the boat further south is astern, even if it's also to starboard.

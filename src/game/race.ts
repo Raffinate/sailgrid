@@ -1,5 +1,5 @@
 import { type Move, moveAt, type Plan, simulate, tackOf } from "./boat.ts"
-import { closestApproach, cross, dirVec, dist, dot, lerp, pointSegment, type Pt, roundPt, samePt, segmentCross, sub } from "./geom.ts"
+import { closestApproach, cross, dirVec, dist, dot, firstWithin, lerp, pointSegment, type Pt, roundPt, samePt, segmentCross, sub } from "./geom.ts"
 import { type GameMap, isWater, landHit, startingPositions } from "./map.ts"
 import { type BoatChoice, type BoatClassId, boatClass, drawBoat } from "./fleet.ts"
 import { type Rng } from "./rng.ts"
@@ -208,18 +208,24 @@ const touchesMark = (map: GameMap, path: Pt[]) =>
 
 /**
  * Closest approach of two boats sailing their paths at the same time (points every few seconds): how
- * close, and when, in path points from the start of the turn.
+ * close, and when, in path points from the start of the turn. `met` is when they first came within
+ * CONTACT (the closest moment if they never did).
  */
-export function pathApproach(a: Pt[], b: Pt[]): { d: number; k: number } {
+export function pathApproach(a: Pt[], b: Pt[]): { d: number; k: number; met: number } {
   const n = Math.max(a.length, b.length) - 1
   const at = (p: Pt[], i: number) => p[Math.min(i, p.length - 1)]
+  if (n <= 0) return { d: dist(a[0], b[0]), k: 0, met: 0 }
   let best = { d: Infinity, k: 0 }
-  if (n <= 0) return { d: dist(a[0], b[0]), k: 0 }
+  let met: number | null = null
   for (let i = 0; i < n; i++) {
     const c = closestApproach(at(a, i), at(a, i + 1), at(b, i), at(b, i + 1))
     if (c.d < best.d) best = { d: c.d, k: i + c.t }
+    if (met === null) {
+      const t = firstWithin(at(a, i), at(a, i + 1), at(b, i), at(b, i + 1), CONTACT)
+      if (t !== null) met = i + t
+    }
   }
-  return best
+  return { ...best, met: met ?? best.k }
 }
 
 export interface ResolvedMove extends Move {
@@ -285,9 +291,11 @@ export function resolveTurn(map: GameMap, state: RaceState, plans: Map<number, P
       const ca = pathApproach(a.path, b.path)
       const sameSpot = samePt(a.end, b.end)
       if (ca.d >= CONTACT && !sameSpot) continue
-      // Judged as the boats were when they met: where they were, which way they pointed, who was tacking.
-      const ma = moveAt(a, ca.k)
-      const mb = moveAt(b, ca.k)
+      // Judged as the boats were when they met, the moment they first came that close (not when closest,
+      // by which time one may have sailed past the other): where they were, which way they pointed, who
+      // was tacking.
+      const ma = moveAt(a, ca.met)
+      const mb = moveAt(b, ca.met)
       const windFrom = windAt(field, lerp(ma.pos, mb.pos, 0.5)).from
       const r = rightOfWay(ma, mb, windFrom)
       for (const f of r.fault) {

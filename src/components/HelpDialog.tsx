@@ -95,7 +95,7 @@ export function HelpDialog(props: { open: boolean; onOpenChange: (open: boolean)
           <H>Racing rules and penalties</H>
           <p class="mb-2">
             Boats that come within a boat-length or so of each other during a turn have met; the boat that should have kept
-            clear takes a time penalty. Your result is your elapsed time (in turns) plus penalties.
+            clear at the moment they first came that close takes a time penalty. Your result is your elapsed time (in turns) plus penalties.
           </p>
           <dl class="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1.5">
             <For each={rules}>

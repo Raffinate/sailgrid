@@ -72,3 +72,20 @@ export function closestApproach(a0: Pt, a1: Pt, b0: Pt, b1: Pt): { d: number; t:
   const t = vv === 0 ? 0 : clamp(-dot(p, v) / vv, 0, 1)
   return { d: len(add(p, scale(v, t))), t }
 }
+
+/**
+ * When two points moving as in closestApproach first come within `r` of each other, as a fraction of the
+ * interval, or null if they never do.
+ */
+export function firstWithin(a0: Pt, a1: Pt, b0: Pt, b1: Pt, r: number): number | null {
+  const p = sub(a0, b0)
+  const v = sub(sub(a1, a0), sub(b1, b0))
+  const c = dot(p, p) - r * r
+  if (c < 0) return 0
+  const vv = dot(v, v)
+  const pv = dot(p, v)
+  const disc = pv * pv - vv * c
+  if (vv === 0 || disc < 0) return null
+  const t = (-pv - Math.sqrt(disc)) / vv
+  return t >= 0 && t <= 1 ? t : null
+}
