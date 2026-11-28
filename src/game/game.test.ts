@@ -168,6 +168,23 @@ describe("rules", () => {
   it("port keeps clear of starboard", () => {
     expect(rightOfWay(close(45, 0, 0), close(315, 1, 0), 0)).toEqual({ fault: ["a"], rule: "10" })
   })
+  it("the windward boat is the one on the other's windward side, not the one further upwind", () => {
+    // Wind from 206, both heading 255 on port tack: each boat's windward side is its left. a is 0.3 cells
+    // behind b (less than a hull length, so overlapped) and 0.15 to its left: further downwind on the
+    // chart, but on b's windward side.
+    const a = close(255, 0.33, 0.07)
+    const b = close(255, 0, 0)
+    expect(rightOfWay(a, b, 206)).toEqual({ fault: ["a"], rule: "11" })
+    expect(rightOfWay(b, a, 206)).toEqual({ fault: ["b"], rule: "11" })
+  })
+  it("boats crossing on the same tack, each on the other's windward side, are judged ahead and astern", () => {
+    // Wind from the south-west, both on port tack. A sails west and has just crossed ahead of B, which sails
+    // north: each has the other on its port (windward) side. B is behind A, so B keeps clear.
+    const a = close(270, -0.2, -0.75)
+    const b = close(0, 0, 0)
+    expect(rightOfWay(a, b, 225)).toEqual({ fault: ["b"], rule: "12" })
+    expect(rightOfWay(b, a, 225)).toEqual({ fault: ["a"], rule: "12" })
+  })
   it("windward keeps clear when overlapped on the same tack", () => {
     // Both on starboard (heading west, wind from north): the boat further north is windward.
     expect(rightOfWay(close(270, 0, -1), close(270, 0, 0), 0)).toEqual({ fault: ["a"], rule: "11" })

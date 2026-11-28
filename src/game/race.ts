@@ -291,11 +291,22 @@ export function rightOfWay(
   const ta = tackOf(a.heading, windFrom)
   const tb = tackOf(b.heading, windFrom)
   if (ta !== tb) return { fault: [ta === "port" ? "a" : "b"], rule: "10" }
-  const aAstern = dot(sub(a.pos, b.pos), dirVec(b.heading)) < -OVERLAP
-  const bAstern = dot(sub(b.pos, a.pos), dirVec(a.heading)) < -OVERLAP
+  // How far each boat is behind the other, along the other's heading.
+  const aBehind = -dot(sub(a.pos, b.pos), dirVec(b.heading))
+  const bBehind = -dot(sub(b.pos, a.pos), dirVec(a.heading))
+  const aAstern = aBehind > OVERLAP
+  const bAstern = bBehind > OVERLAP
   if (aAstern !== bAstern) return { fault: [aAstern ? "a" : "b"], rule: "12" }
-  const up = dirVec(windFrom)
-  return { fault: [dot(a.pos, up) > dot(b.pos, up) ? "a" : "b"], rule: "11" }
+  // Overlapped: the windward boat, the one on the other's windward side (the side the wind comes over on
+  // their tack; on starboard, the right), keeps clear. Each boat judges the other by its own heading. If
+  // they agree (one sees the other to windward, the other sees it to leeward), that's rule 11. If they
+  // don't (each sees the other on the same side), the boats are crossing at an angle, one in front of the
+  // other, and windward and leeward mean nothing: the one further behind the other's stern keeps clear.
+  const windwardSide = ta === "starboard" ? 90 : -90
+  const toWindward = (from: typeof a, other: typeof a) => dot(sub(other.pos, from.pos), dirVec(from.heading + windwardSide)) > 0
+  const bWindward = toWindward(a, b)
+  if (bWindward !== toWindward(b, a)) return { fault: [bWindward ? "b" : "a"], rule: "11" }
+  return { fault: [aBehind > bBehind ? "a" : "b"], rule: "12" }
 }
 
 /** All boats move at once; then fouls, groundings and course progress are scored. */
